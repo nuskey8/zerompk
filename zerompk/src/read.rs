@@ -110,6 +110,13 @@ impl<'de> SliceReader<'de> {
         self.pos += len;
         Ok(slice)
     }
+
+    #[inline(always)]
+    fn take_array<const N: usize>(&mut self) -> Result<&'de [u8; N]> {
+        let slice = self.peek_slice(N)?;
+        self.pos += N;
+        Ok(unsafe { &*(slice.as_ptr() as *const [u8; N]) })
+    }
 }
 
 impl<'de> Read<'de> for SliceReader<'de> {
@@ -194,10 +201,8 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // uint 16
             UINT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(u16::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 2])
-                }))
+                let bytes = self.take_array::<2>()?;
+                Ok(u16::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -221,16 +226,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // uint 16
             UINT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as u32)
+                let bytes = self.take_array::<2>()?;
+                Ok(u16::from_be_bytes(*bytes) as u32)
             }
             // uint 32
             UINT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(u32::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 4])
-                }))
+                let bytes = self.take_array::<4>()?;
+                Ok(u32::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -254,22 +257,20 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // uint 16
             UINT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as u64)
+                let bytes = self.take_array::<2>()?;
+                Ok(u16::from_be_bytes(*bytes) as u64)
             }
             // uint 32
             UINT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as u64)
+                let bytes = self.take_array::<4>()?;
+                Ok(u32::from_be_bytes(*bytes) as u64)
             }
             // uint 64
             UINT64_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(8)?;
-                Ok(u64::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 8])
-                }))
+                let bytes = self.take_array::<8>()?;
+                Ok(u64::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -322,10 +323,8 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // int 16
             INT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(i16::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 2])
-                }))
+                let bytes = self.take_array::<2>()?;
+                Ok(i16::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -354,16 +353,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // int 16
             INT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(i16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as i32)
+                let bytes = self.take_array::<2>()?;
+                Ok(i16::from_be_bytes(*bytes) as i32)
             }
             // int 32
             INT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(i32::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 4])
-                }))
+                let bytes = self.take_array::<4>()?;
+                Ok(i32::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -392,22 +389,20 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // int 16
             INT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(i16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as i64)
+                let bytes = self.take_array::<2>()?;
+                Ok(i16::from_be_bytes(*bytes) as i64)
             }
             // int 32
             INT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(i32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as i64)
+                let bytes = self.take_array::<4>()?;
+                Ok(i32::from_be_bytes(*bytes) as i64)
             }
             // int 64
             INT64_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(8)?;
-                Ok(i64::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 8])
-                }))
+                let bytes = self.take_array::<8>()?;
+                Ok(i64::from_be_bytes(*bytes))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -420,10 +415,8 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // float 32
             0xca => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(f32::from_bits(u32::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 4])
-                })))
+                let bytes = self.take_array::<4>()?;
+                Ok(f32::from_bits(u32::from_be_bytes(*bytes)))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -436,10 +429,8 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // float 64
             0xcb => {
                 self.pos += 1;
-                let bytes = self.take_slice(8)?;
-                Ok(f64::from_bits(u64::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 8])
-                })))
+                let bytes = self.take_array::<8>()?;
+                Ok(f64::from_bits(u64::from_be_bytes(*bytes)))
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -463,14 +454,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // str 16
             STR16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize
+                let bytes = self.take_array::<2>()?;
+                u16::from_be_bytes(*bytes) as usize
             }
             // str 32
             STR32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize
+                let bytes = self.take_array::<4>()?;
+                u32::from_be_bytes(*bytes) as usize
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
@@ -499,14 +490,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // str 16
             STR16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize
+                let bytes = self.take_array::<2>()?;
+                u16::from_be_bytes(*bytes) as usize
             }
             // str 32
             STR32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize
+                let bytes = self.take_array::<4>()?;
+                u32::from_be_bytes(*bytes) as usize
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
@@ -527,14 +518,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // bin 16
             BIN16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize
+                let bytes = self.take_array::<2>()?;
+                u16::from_be_bytes(*bytes) as usize
             }
             // bin 32
             BIN32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize
+                let bytes = self.take_array::<4>()?;
+                u32::from_be_bytes(*bytes) as usize
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
@@ -549,24 +540,25 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // fixext 4 with type -1
             TIMESTAMP32_MARKER => {
                 self.pos += 1;
-                let ext_info = self.take_slice(5)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+                let ext_info = self.take_array::<5>()?;
+                let [ext, tail @ ..] = *ext_info;
+                if ext as i8 != TIMESTAMP_EXT_TYPE {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let seconds =
-                    u32::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 4]) })
-                        as i64;
+
+                let seconds = u32::from_be_bytes(tail) as i64;
                 Ok((seconds, 0))
             }
             // fixext 8 with type -1
             TIMESTAMP64_MARKER => {
                 self.pos += 1;
-                let ext_info = self.take_slice(9)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+                let ext_info = self.take_array::<9>()?;
+                let [ext, tail @ ..] = *ext_info;
+                if ext as i8 != TIMESTAMP_EXT_TYPE {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let data64 =
-                    u64::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 8]) });
+
+                let data64 = u64::from_be_bytes(tail);
                 let nanoseconds = (data64 >> 34) as u32;
                 let seconds = (data64 & 0x0000_0003_ffff_ffff) as i64;
                 if nanoseconds >= 1_000_000_000 {
@@ -581,14 +573,17 @@ impl<'de> Read<'de> for SliceReader<'de> {
                 if len != 12 {
                     return Err(Error::InvalidMarker(len as u8));
                 }
-                let ext_info = self.take_slice(13)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+
+                let ext_info = self.take_array::<13>()?;
+                let [ext, tail @ ..] = *ext_info;
+                if ext as i8 != TIMESTAMP_EXT_TYPE {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let nanoseconds =
-                    u32::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 4]) });
-                let seconds =
-                    i64::from_be_bytes(unsafe { *(ext_info.as_ptr().add(5) as *const [u8; 8]) });
+
+                // Instead of using pointers, use `try_into().unwrap()`.
+                // This is faster because it is properly optimized by the compiler.
+                let nanoseconds = u32::from_be_bytes(tail[0..4].try_into().unwrap());
+                let seconds = i64::from_be_bytes(tail[4..12].try_into().unwrap());
                 if nanoseconds >= 1_000_000_000 {
                     return Err(Error::InvalidTimestamp);
                 }
@@ -610,14 +605,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // array 16
             ARRAY16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize)
+                let bytes = self.take_array::<2>()?;
+                Ok(u16::from_be_bytes(*bytes) as usize)
             }
             // array 32
             ARRAY32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize)
+                let bytes = self.take_array::<4>()?;
+                Ok(u32::from_be_bytes(*bytes) as usize)
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -635,14 +630,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // map 16
             MAP16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize)
+                let bytes = self.take_array::<2>()?;
+                Ok(u16::from_be_bytes(*bytes) as usize)
             }
             // map 32
             MAP32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize)
+                let bytes = self.take_array::<4>()?;
+                Ok(u32::from_be_bytes(*bytes) as usize)
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
@@ -686,14 +681,14 @@ impl<'de> Read<'de> for SliceReader<'de> {
             // ext 16
             EXT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize
+                let bytes = self.take_array::<2>()?;
+                u16::from_be_bytes(*bytes) as usize
             }
             // ext 32
             EXT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize
+                let bytes = self.take_array::<4>()?;
+                u32::from_be_bytes(*bytes) as usize
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
@@ -758,24 +753,18 @@ impl<'de> Read<'de> for SliceReader<'de> {
             }
             UINT16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                Ok(Tag::Int(
-                    u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as u64,
-                ))
+                let bytes = self.take_array::<2>()?;
+                Ok(Tag::Int(u16::from_be_bytes(*bytes) as u64))
             }
             UINT32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                Ok(Tag::Int(
-                    u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as u64,
-                ))
+                let bytes = self.take_array::<4>()?;
+                Ok(Tag::Int(u32::from_be_bytes(*bytes) as u64))
             }
             UINT64_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(8)?;
-                Ok(Tag::Int(u64::from_be_bytes(unsafe {
-                    *(bytes.as_ptr() as *const [u8; 8])
-                })))
+                let bytes = self.take_array::<8>()?;
+                Ok(Tag::Int(u64::from_be_bytes(*bytes)))
             }
             FIXSTR_START..=FIXSTR_END => {
                 self.pos += 1;
@@ -798,9 +787,9 @@ impl<'de> Read<'de> for SliceReader<'de> {
             }
             STR16_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(2)?;
-                let len =
-                    u16::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 2]) }) as usize;
+                let bytes = self.take_array::<2>()?;
+                let len = u16::from_be_bytes(*bytes) as usize;
+
                 let bytes = self.take_slice(len)?;
                 match core::str::from_utf8(bytes) {
                     Ok(s) => Ok(Tag::String(alloc::borrow::Cow::Borrowed(s))),
@@ -809,9 +798,9 @@ impl<'de> Read<'de> for SliceReader<'de> {
             }
             STR32_MARKER => {
                 self.pos += 1;
-                let bytes = self.take_slice(4)?;
-                let len =
-                    u32::from_be_bytes(unsafe { *(bytes.as_ptr() as *const [u8; 4]) }) as usize;
+                let bytes = self.take_array::<4>()?;
+                let len = u32::from_be_bytes(*bytes) as usize;
+
                 let bytes = self.take_slice(len)?;
                 match core::str::from_utf8(bytes) {
                     Ok(s) => Ok(Tag::String(alloc::borrow::Cow::Borrowed(s))),
@@ -1194,22 +1183,24 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             TIMESTAMP32_MARKER => {
                 let mut ext_info = [0u8; 5];
                 self.read_exact(&mut ext_info)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+
+                let [ext, tail @ ..] = ext_info;
+                if ext != TIMESTAMP_EXT_TYPE as u8 {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let seconds =
-                    u32::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 4]) })
-                        as i64;
+                let seconds = u32::from_be_bytes(tail) as i64;
                 Ok((seconds, 0))
             }
             TIMESTAMP64_MARKER => {
                 let mut ext_info = [0u8; 9];
                 self.read_exact(&mut ext_info)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+
+                let [ext, tail @ ..] = ext_info;
+                if ext != -1i8 as u8 {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let data64 =
-                    u64::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 8]) });
+
+                let data64 = u64::from_be_bytes(tail);
                 let nanoseconds = (data64 >> 34) as u32;
                 let seconds = (data64 & 0x0000_0003_ffff_ffff) as i64;
                 if nanoseconds >= 1_000_000_000 {
@@ -1222,18 +1213,22 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 if len != 12 {
                     return Err(Error::InvalidMarker(len as u8));
                 }
+
                 let mut ext_info = [0u8; 13];
                 self.read_exact(&mut ext_info)?;
-                if ext_info[0] != -1i8 as u8 {
-                    return Err(Error::InvalidMarker(ext_info[0]));
+                let [ext, tail @ ..] = ext_info;
+                if ext != TIMESTAMP_EXT_TYPE as u8 {
+                    return Err(Error::InvalidMarker(ext));
                 }
-                let nanoseconds =
-                    u32::from_be_bytes(unsafe { *(ext_info.as_ptr().add(1) as *const [u8; 4]) });
-                let seconds =
-                    i64::from_be_bytes(unsafe { *(ext_info.as_ptr().add(5) as *const [u8; 8]) });
+
+                // Instead of using pointers, use `try_into().unwrap()`.
+                // This is faster because it is properly optimized by the compiler.
+                let nanoseconds = u32::from_be_bytes(tail[0..4].try_into().unwrap());
+                let seconds = i64::from_be_bytes(tail[4..12].try_into().unwrap());
                 if nanoseconds >= 1_000_000_000 {
                     return Err(Error::InvalidTimestamp);
                 }
+
                 Ok((seconds, nanoseconds))
             }
             _ => Err(Error::InvalidMarker(byte)),

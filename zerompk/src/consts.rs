@@ -35,6 +35,8 @@ pub const ARRAY16_MARKER: u8 = 0xdc;
 pub const ARRAY32_MARKER: u8 = 0xdd;
 pub const MAP16_MARKER: u8 = 0xde;
 pub const MAP32_MARKER: u8 = 0xdf;
+
+pub const TIMESTAMP_EXT_TYPE: i8 = -1;
 pub const TIMESTAMP32_MARKER: u8 = 0xd6;
 pub const TIMESTAMP64_MARKER: u8 = 0xd7;
 pub const TIMESTAMP96_MARKER: u8 = 0xc7;
