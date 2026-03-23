@@ -1,0 +1,29 @@
+[package]
+name = "fuzz"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+zerompk = { path = "../zerompk", features = ["derive"] }
+
+[[bin]]
+name = "decode_no_panic"
+path = "fuzz_targets/decode_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
