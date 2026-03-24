@@ -181,7 +181,7 @@ fn derive_map_rejects_unknown_key_with_same_len_and_prefix() {
     let err = zerompk::from_msgpack::<LongMapKeyPoint>(&data).unwrap_err();
     assert!(matches!(
         err,
-        zerompk::Error::KeyNotFound(ref key) if key == "abcdefghY"
+        zerompk::Error::UnknownKey(ref key) if key == "abcdefghY"
     ));
 }
 

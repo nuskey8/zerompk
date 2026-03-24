@@ -15,6 +15,7 @@ pub enum Error {
         expected: usize,
         actual: usize,
     },
+    UnknownKey(alloc::string::String),
     KeyNotFound(alloc::string::String),
     KeyDuplicated(alloc::string::String),
     InvalidTimestamp,
@@ -48,6 +49,9 @@ impl Display for Error {
                     "Map length mismatch: expected {}, actual {}",
                     expected, actual
                 )
+            }
+            Error::UnknownKey(key) => {
+                write!(f, "Unknown key '{}'", key)
             }
             Error::KeyNotFound(key) => {
                 write!(f, "Key '{}' not found", key)

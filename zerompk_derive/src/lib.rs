@@ -259,7 +259,7 @@ fn build_map_key_dispatch_match(
             Ok(s) => s.into(),
             Err(_) => "<invalid-utf8>".into(),
         };
-        Err(::zerompk::Error::KeyNotFound(__unknown_key))
+        Err(::zerompk::Error::UnknownKey(__unknown_key))
     }};
 
     let len_arms: Vec<_> = groups
