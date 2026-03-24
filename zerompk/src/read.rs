@@ -1,4 +1,4 @@
-use alloc::string::ToString;
+use alloc::vec;
 
 use crate::Error;
 use crate::FromMessagePack;
@@ -1106,14 +1106,13 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
-        let mut str_buf = alloc::vec::Vec::with_capacity(len);
-        unsafe {
-            str_buf.set_len(len);
-            self.read_exact(str_buf.as_mut_slice())?;
-        }
-        match core::str::from_utf8(&str_buf) {
-            Ok(s) => Ok(alloc::borrow::Cow::Owned(s.to_string())),
-            Err(err) => Err(Error::InvalidUtf8(err)),
+
+        let mut str_buf = vec![0u8; len];
+        self.read_exact(str_buf.as_mut_slice())?;
+
+        match alloc::string::String::from_utf8(str_buf) {
+            Ok(s) => Ok(alloc::borrow::Cow::Owned(s)),
+            Err(err) => Err(Error::InvalidUtf8(err.utf8_error())),
         }
     }
 
@@ -1139,11 +1138,9 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
-        let mut str_buf = alloc::vec::Vec::with_capacity(len);
-        unsafe {
-            str_buf.set_len(len);
-            self.read_exact(str_buf.as_mut_slice())?;
-        }
+
+        let mut str_buf = vec![0u8; len];
+        self.read_exact(str_buf.as_mut_slice())?;
         Ok(alloc::borrow::Cow::Owned(str_buf))
     }
 
@@ -1168,11 +1165,9 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             _ => return Err(Error::InvalidMarker(byte)),
         };
-        let mut data_buf = alloc::vec::Vec::with_capacity(len);
-        unsafe {
-            data_buf.set_len(len);
-            self.read_exact(data_buf.as_mut_slice())?;
-        }
+
+        let mut data_buf = vec![0u8; len];
+        self.read_exact(data_buf.as_mut_slice())?;
         Ok(alloc::borrow::Cow::Owned(data_buf))
     }
 
@@ -1351,10 +1346,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             FIXSTR_START..=FIXSTR_END => {
                 let len = (byte - FIXSTR_START) as usize;
-                let mut str_buf = alloc::vec::Vec::with_capacity(len);
-                unsafe {
-                    str_buf.set_len(len);
-                }
+                let mut str_buf = vec![0u8; len];
                 self.read_exact(str_buf.as_mut_slice())?;
                 match alloc::string::String::from_utf8(str_buf) {
                     Ok(s) => Ok(Tag::String(s.into())),
@@ -1364,10 +1356,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             STR8_MARKER => {
                 self.read_exact(&mut buf)?;
                 let len = buf[0] as usize;
-                let mut str_buf = alloc::vec::Vec::with_capacity(len);
-                unsafe {
-                    str_buf.set_len(len);
-                }
+                let mut str_buf = vec![0u8; len];
                 self.read_exact(str_buf.as_mut_slice())?;
                 match alloc::string::String::from_utf8(str_buf) {
                     Ok(s) => Ok(Tag::String(s.into())),
@@ -1378,10 +1367,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 let mut buf = [0u8; 2];
                 self.read_exact(&mut buf)?;
                 let len = u16::from_be_bytes(buf) as usize;
-                let mut str_buf = alloc::vec::Vec::with_capacity(len);
-                unsafe {
-                    str_buf.set_len(len);
-                }
+                let mut str_buf = vec![0u8; len];
                 self.read_exact(str_buf.as_mut_slice())?;
                 match alloc::string::String::from_utf8(str_buf) {
                     Ok(s) => Ok(Tag::String(s.into())),
@@ -1392,10 +1378,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 let mut buf = [0u8; 4];
                 self.read_exact(&mut buf)?;
                 let len = u32::from_be_bytes(buf) as usize;
-                let mut str_buf = alloc::vec::Vec::with_capacity(len);
-                unsafe {
-                    str_buf.set_len(len);
-                }
+                let mut str_buf = vec![0u8; len];
                 self.read_exact(str_buf.as_mut_slice())?;
                 match alloc::string::String::from_utf8(str_buf) {
                     Ok(s) => Ok(Tag::String(s.into())),
