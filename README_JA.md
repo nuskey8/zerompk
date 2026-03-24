@@ -497,7 +497,7 @@ MessagePackフォーマット上の制約から、zero-copyデシリアライズ
 | `serde_json` (JSON) |  98.33 μs |   329.12 μs |
 | `msgpacker`         |  25.41 μs |   134.37 μs |
 | `rmp_serde`         |  56.22 μs |    97.00 μs |
-| `zerompk`           |  28.82 μs |    72.27 μs |
+| `zerompk`           |  12.38 μs |    72.27 μs |
 
 ### Serialize/Deserialize Struct (with 4 fields, map format) 1000 times
 
@@ -505,7 +505,7 @@ MessagePackフォーマット上の制約から、zero-copyデシリアライズ
 | ------------------ | --------: | ----------: |
 | `serde_json`(JSON) |  98.33 μs |   329.12 μs |
 | `rmp_serde`        |  92.63 μs |    98.31 μs |
-| `zerompk`          |  35.81 μs |    71.19 μs |
+| `zerompk`          |  18.76 μs |    71.19 μs |
 | `msgpacker`        |       N/A |         N/A |
 
 ### Serialize/Deserialize Array (struct with 2 fields, 1000 elements) 1000 times
@@ -515,7 +515,7 @@ MessagePackフォーマット上の制約から、zero-copyデシリアライズ
 | `serde_json`(JSON) | 22,369.22 μs | 37,034.55 μs |
 | `rmp_serde`        |  9,803.24 μs | 10,839.79 μs |
 | `msgpacker`        | 10,981.52 μs |  4,608.72 μs |
-| `zerompk`          |  6,310.66 μs |  4,074.17 μs |
+| `zerompk`          |  2,632.23 μs |  4,074.17 μs |
 
 ### Serialize/Deserialize Struct (with 2 fields, no-copy) 1000 times
 
