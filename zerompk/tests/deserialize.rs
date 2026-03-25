@@ -1,5 +1,6 @@
 use crate::common::{Nested, Point};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
+use std::io::{Cursor, ErrorKind};
 use std::rc::Rc;
 
 mod common;
@@ -292,4 +293,28 @@ fn test_deserialization_with_trailing_bytes_is_accepted() {
     let data = [0x01, 0x02, 0x03];
     let value: i32 = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(value, 1);
+}
+
+#[test]
+fn test_read_msgpack_std_io_success() {
+    let data = [0x92, 0x0a, 0x14];
+    let point: Point = zerompk::read_msgpack(Cursor::new(data)).unwrap();
+    assert_eq!(point, Point { x: 10, y: 20 });
+}
+
+#[test]
+fn test_read_msgpack_std_io_invalid_marker() {
+    let data = [0x82, 0x00, 0x00];
+    let err = zerompk::read_msgpack::<_, Point>(Cursor::new(data)).unwrap_err();
+    assert!(matches!(err, zerompk::Error::InvalidMarker(0x82)));
+}
+
+#[test]
+fn test_read_msgpack_std_io_unexpected_eof() {
+    let data = [0x92, 0x01];
+    let err = zerompk::read_msgpack::<_, Point>(Cursor::new(data)).unwrap_err();
+    match err {
+        zerompk::Error::IoError(io_err) => assert_eq!(io_err.kind(), ErrorKind::UnexpectedEof),
+        _ => panic!("expected IoError(UnexpectedEof), got: {err:?}"),
+    }
 }
