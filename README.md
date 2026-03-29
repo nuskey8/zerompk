@@ -513,7 +513,7 @@ Many of these optimizations are inspired by the high-performance MessagePack ser
 | `serde_json`(JSON) | 22,369.22 μs | 37,034.55 μs |
 | `rmp_serde`        |  9,803.24 μs | 10,839.79 μs |
 | `msgpacker`        | 10,981.52 μs |  4,608.72 μs |
-| `zerompk`          |  6,310.66 μs |  4,074.17 μs |
+| `zerompk`          |  6,310.66 μs |  3,571.90 μs |
 
 ### Serialize/Deserialize Struct (with 2 fields, no-copy) 1000 times
 
