@@ -1,5 +1,7 @@
 use crate::common::{Nested, Point};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
+
+#[cfg(feature = "std")]
 use std::io::{Cursor, ErrorKind};
 use std::rc::Rc;
 
@@ -296,6 +298,7 @@ fn test_deserialization_with_trailing_bytes_is_accepted() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn test_read_msgpack_std_io_success() {
     let data = [0x92, 0x0a, 0x14];
     let point: Point = zerompk::read_msgpack(Cursor::new(data)).unwrap();
@@ -303,6 +306,7 @@ fn test_read_msgpack_std_io_success() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn test_read_msgpack_std_io_invalid_marker() {
     let data = [0x82, 0x00, 0x00];
     let err = zerompk::read_msgpack::<_, Point>(Cursor::new(data)).unwrap_err();
@@ -310,6 +314,7 @@ fn test_read_msgpack_std_io_invalid_marker() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn test_read_msgpack_std_io_unexpected_eof() {
     let data = [0x92, 0x01];
     let err = zerompk::read_msgpack::<_, Point>(Cursor::new(data)).unwrap_err();

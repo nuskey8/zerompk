@@ -1,5 +1,7 @@
 use crate::{Error, FromMessagePack, Read, ToMessagePack, Write};
 use alloc::string::ToString;
+
+#[cfg(feature = "std")]
 use core::hash::Hash;
 
 // -------------------------------------------------------------------------------

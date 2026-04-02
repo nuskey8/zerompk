@@ -1,8 +1,8 @@
+#[cfg(feature = "std")]
 use alloc::vec;
 
 use crate::Error;
 use crate::FromMessagePack;
-#[cfg(feature = "std")]
 use crate::Result;
 use crate::consts::*;
 
@@ -819,6 +819,7 @@ pub struct IOReader<R: std::io::Read> {
     peeked: Option<u8>,
 }
 
+#[cfg(feature = "std")]
 impl<R: std::io::Read> IOReader<R> {
     pub fn new(reader: R) -> Self {
         Self {

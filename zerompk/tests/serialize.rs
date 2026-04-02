@@ -322,6 +322,7 @@ fn test_to_msgpack_with_small_buffer() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn test_write_read_msgpack_std_io() {
     let point = Point { x: 7, y: 9 };
     let mut out = Vec::<u8>::new();

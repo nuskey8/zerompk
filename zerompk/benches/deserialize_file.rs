@@ -25,6 +25,7 @@ fn deserialize_rmp_serde_file(b: &mut test::Bencher) {
 }
 
 #[bench]
+#[cfg(feature = "std")]
 fn deserialize_zerompk_file(b: &mut test::Bencher) {
     let points: Vec<Point> = (0..1000).map(|i| Point { x: i, y: i * 2 }).collect();
     let tmp_file = std::env::temp_dir().join("points_zerompk.msgpack");
