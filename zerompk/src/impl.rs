@@ -177,25 +177,27 @@ impl ToMessagePack for [u8] {
     }
 }
 
-impl<'a, const N: usize> FromMessagePack<'a> for &'a [u8; N] {
+impl<'a, T: FromMessagePack<'a>, const N: usize> FromMessagePack<'a> for [T; N] {
     fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self> {
-        let bytes = reader.read_binary()?;
-        if bytes.len() != N {
-            return Err(crate::Error::ArrayLengthMismatch {
-                expected: N,
-                actual: bytes.len(),
-            });
+        reader.check_array_len(N)?;
+        let mut arr: core::mem::MaybeUninit<[T; N]> = core::mem::MaybeUninit::uninit();
+        let ptr = arr.as_mut_ptr() as *mut T;
+        for i in 0..N {
+            unsafe {
+                ptr.add(i).write(T::read(reader)?);
+            }
         }
-        match bytes {
-            alloc::borrow::Cow::Borrowed(s) => Ok(s.try_into().unwrap()),
-            alloc::borrow::Cow::Owned(_) => Err(crate::Error::CannotBorrow),
-        }
+        Ok(unsafe { arr.assume_init() })
     }
 }
 
-impl<const N: usize> ToMessagePack for [u8; N] {
+impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
-        writer.write_binary(self)
+        writer.write_array_len(N)?;
+        for item in self {
+            item.write(writer)?;
+        }
+        Ok(())
     }
 }
 
