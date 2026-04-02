@@ -53,7 +53,8 @@ The correspondence between Rust types and MessagePack types in zerompk is as fol
 | `DateTime<Utc>`, `NaiveDateTime` (chrono)                                                      | `timestamp 32`, `timestamp 64`, `timestamp 96` (ext -1)                     |
 | struct (default, with `#[msgpack(array)]`)                                                     | `fixarray`, `array 16`, `array 32`                                          |
 | struct (with `#[msgpack(map)]`)                                                                | `fixmap`, `map 16`, `map 32`                                                |
-| enum                                                                                           | `fixarray` (`[tag, value]`)                                                 |
+| enum (default)                                                                                 | `fixarray` (`[tag, value]`)                                                 |
+| enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
 ## derive
 
@@ -119,6 +120,21 @@ pub struct Person {
 
     #[msgpack(ignore)]
     pub meta: Metadata,
+}
+```
+
+### c_enum
+
+You can serialize a C-style enum as an integer by adding `#[msgpack(c_enum)]` to it. The value is the discriminant for each variant.
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(c_enum)]
+#[repr(u8)]
+pub enum Status {
+    Ok = 0,
+    NotFound = 4,
+    InternalServerError = 5,
 }
 ```
 

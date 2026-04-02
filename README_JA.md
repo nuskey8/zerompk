@@ -53,7 +53,8 @@ zerompkにおけるRustとMessagePackの型の対応は以下の通りです。M
 | `DateTime<Utc>`, `NaiveDateTime` (chrono)                                                      | `timestamp 32`, `timestamp 64`, `timestamp 96` (ext -1)                     |
 | struct (default, with `#[msgpack(array)]`)                                                     | `fixarray`, `array 16`, `array 32`                                          |
 | struct (with `#[msgpack(map)]`)                                                                | `fixmap`, `map 16`, `map 32`                                                |
-| enum                                                                                           | `fixarray` (`[tag, value]`)                                                 |
+| enum (default)                                                                                 | `fixarray` (`[tag, value]`)                                                 |
+| enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
 ## derive
 
@@ -119,6 +120,21 @@ pub struct Person {
 
     #[msgpack(ignore)]
     pub meta: Metadata,
+}
+```
+
+### c_enum
+
+C-styleのenumに`#[msgpack(c_enum)]`を付与することで、enumを整数としてシリアライズできます。値は各バリアントの判別子(discriminant)です。
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(c_enum)]
+#[repr(u8)]
+pub enum Status {
+    Ok = 0,
+    NotFound = 4,
+    InternalServerError = 5,
 }
 ```
 
