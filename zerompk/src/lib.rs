@@ -29,6 +29,7 @@ where
     fn read<R: Read<'a>>(reader: &mut R) -> Result<Self>;
 }
 
+/// A trait for types that can be deserialized from MessagePack format without borrowing.
 pub trait FromMessagePackOwned: for<'a> FromMessagePack<'a> {}
 
 impl<T> FromMessagePackOwned for T where T: for<'a> FromMessagePack<'a> {}

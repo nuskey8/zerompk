@@ -6,43 +6,130 @@ use crate::FromMessagePack;
 use crate::Result;
 use crate::consts::*;
 
+/// The maximum allowed depth of nested structures during deserialization.
 pub const MAX_DEPTH: usize = 500;
 
+/// A tag read from a MessagePack stream, which can be either an integer or a string.
 pub enum Tag<'de> {
     Int(u64),
     String(alloc::borrow::Cow<'de, str>),
 }
 
+/// A trait for reading values from a MessagePack-encoded input.
 pub trait Read<'de> {
+    /// Increments the current depth of nested structures.
+    ///
+    /// ### Errors
+    ///
+    /// Returns an error if the maximum depth is exceeded.
+    ///
+    /// ### Examples
+    ///
+    /// ```rust
+    /// struct Outer {
+    ///     inner: Inner,
+    /// }
+    ///
+    /// struct Inner {
+    ///     value: i32,
+    /// }
+    ///
+    /// impl<'de> FromMessagePack<'de> for Outer {
+    ///     fn read<R: Read<'de>>(reader: &mut R) -> Result<Self> {
+    ///         reader.increment_depth()?;   
+    ///         let inner = Inner::read(reader)?;
+    ///         reader.decrement_depth();
+    ///         Ok(Self { inner })
+    ///     }
+    /// }
+    ///
+    /// impl<'de> FromMessagePack<'de> for Inner {
+    ///     fn read<R: Read<'de>>(reader: &mut R) -> Result<Self> {
+    ///         reader.increment_depth()?;
+    ///         let value = reader.read_i32()?;
+    ///         reader.decrement_depth();
+    ///         Ok(Self { value })
+    ///     }
+    /// }
+    /// ``
+    ///
     fn increment_depth(&mut self) -> Result<()>;
+
+    /// Decrements the current depth of nested structures.
+    /// This should be called after finishing reading a nested structure.
     fn decrement_depth(&mut self);
 
+    /// Reads a nil value from the input.
     fn read_nil(&mut self) -> Result<()>;
+
+    /// Reads a boolean value from the input.
     fn read_boolean(&mut self) -> Result<bool>;
+
+    /// Reads an unsigned 8-bit integer from the input.
     fn read_u8(&mut self) -> Result<u8>;
+
+    /// Reads an unsigned 16-bit integer from the input.
     fn read_u16(&mut self) -> Result<u16>;
+
+    /// Reads an unsigned 32-bit integer from the input.
     fn read_u32(&mut self) -> Result<u32>;
+
+    /// Reads an unsigned 64-bit integer from the input.
     fn read_u64(&mut self) -> Result<u64>;
+
+    /// Reads a signed 8-bit integer from the input.
     fn read_i8(&mut self) -> Result<i8>;
+
+    /// Reads a signed 16-bit integer from the input.
     fn read_i16(&mut self) -> Result<i16>;
+
+    /// Reads a signed 32-bit integer from the input.
     fn read_i32(&mut self) -> Result<i32>;
+
+    /// Reads a signed 64-bit integer from the input.
     fn read_i64(&mut self) -> Result<i64>;
+
+    /// Reads a 32-bit floating-point number from the input.
     fn read_f32(&mut self) -> Result<f32>;
+
+    /// Reads a 64-bit floating-point number from the input.
     fn read_f64(&mut self) -> Result<f64>;
+
+    /// Reads a timestamp from the input, returning the seconds and nanoseconds components.
     fn read_timestamp(&mut self) -> Result<(i64, u32)>;
 
+    /// Reads the array header and returns the length of the array.
     fn read_array_len(&mut self) -> Result<usize>;
+
+    /// Reads the map header and returns the number of key-value pairs in the map.
     fn read_map_len(&mut self) -> Result<usize>;
+
+    /// Reads the extension header and returns the extension type and length of the data.
     fn read_ext_len(&mut self) -> Result<(i8, usize)>;
 
+    /// Reads a UTF-8 string from the input.
+    /// Returns a `Cow<str>` which may borrow from the input data if possible.
     fn read_string(&mut self) -> Result<alloc::borrow::Cow<'de, str>>;
+
+    /// Reads the raw bytes of a string from the input, without validating UTF-8.
+    /// Returns a `Cow<[u8]>` which may borrow from the input data if possible.
     fn read_string_bytes(&mut self) -> Result<alloc::borrow::Cow<'de, [u8]>>;
+
+    /// Reads the raw bytes of a binary blob from the input.
+    /// Returns a `Cow<[u8]>` which may borrow from the input data if possible.
     fn read_binary(&mut self) -> Result<alloc::borrow::Cow<'de, [u8]>>;
+
+    /// Reads an optional value from the input.
+    /// Returns `None` if the next value is nil, or `Some(value)` if it is not.
     fn read_option<T: FromMessagePack<'de>>(&mut self) -> Result<Option<T>>;
+
+    /// Reads an array of values from the input, returning a `Vec<T>`.
     fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>>;
 
+    /// Reads a tag from the input, which can be either an integer or a string.
     fn read_tag(&mut self) -> Result<Tag<'de>>;
 
+    /// Validates that the next value in the input is an array of the expected length, and consumes the array header.
     #[inline(always)]
     fn check_array_len(&mut self, expected: usize) -> Result<()> {
         let actual = self.read_array_len()?;
@@ -53,6 +140,7 @@ pub trait Read<'de> {
         }
     }
 
+    /// Validates that the next value in the input is a map of the expected length, and consumes the map header.
     #[inline(always)]
     fn check_map_len(&mut self, expected: usize) -> Result<()> {
         let actual = self.read_map_len()?;
