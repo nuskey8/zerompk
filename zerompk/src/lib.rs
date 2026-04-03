@@ -136,15 +136,16 @@ pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> 
 ///
 /// ```rust
 /// #[derive(zerompk::ToMessagePack)]
-/// struct Point {  
-///    x: i32,
-///    y: i32,
+/// struct Point {
+///     x: i32,
+///     y: i32,
 /// }
 ///
 /// fn main() {
 ///     let point = Point { x: 1, y: 2 };
-///     let mut file = std::fs::File::open("point.msgpack").unwrap();
-///     zerompk::write_msgpack(&mut file, &point).unwrap();
+///     let mut buf = Vec::new();
+///     zerompk::write_msgpack(&mut buf, &point).unwrap();
+///     assert_eq!(buf, vec![0x92, 0x01, 0x02]);
 /// }
 /// ```
 #[cfg(feature = "std")]
@@ -169,8 +170,8 @@ pub fn write_msgpack<T: ToMessagePack, W: std::io::Write>(writer: &mut W, value:
 /// }
 ///
 /// fn main() {
-///     let mut file = std::fs::File::open("point.msgpack").unwrap();
-///     let point: Point = zerompk::read_msgpack(&mut file).unwrap();
+///     let data: &[u8] = &[0x92, 0x01, 0x02];
+///     let point: Point = zerompk::read_msgpack(data).unwrap();
 ///     assert_eq!(point.x, 1);
 ///     assert_eq!(point.y, 2);
 /// }

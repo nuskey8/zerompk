@@ -12,10 +12,10 @@ use crate::{Error, Result, consts::*};
 ///     y: i32,
 /// }
 ///
-/// impl ToMessagePack for Point {
-///     fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
+/// impl zerompk::ToMessagePack for Point {
+///     fn write<W: zerompk::Write>(&self, writer: &mut W) -> zerompk::Result<()> {
 ///         writer.write_array_len(2)?;
-///         writer.write_i32(self.x)?;   
+///         writer.write_i32(self.x)?;
 ///         writer.write_i32(self.y)?;
 ///         Ok(())
 ///     }

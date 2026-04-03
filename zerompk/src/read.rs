@@ -34,24 +34,24 @@ pub trait Read<'de> {
     ///     value: i32,
     /// }
     ///
-    /// impl<'de> FromMessagePack<'de> for Outer {
-    ///     fn read<R: Read<'de>>(reader: &mut R) -> Result<Self> {
-    ///         reader.increment_depth()?;   
+    /// impl<'de> zerompk::FromMessagePack<'de> for Outer {
+    ///     fn read<R: zerompk::Read<'de>>(reader: &mut R) -> zerompk::Result<Self> {
+    ///         reader.increment_depth()?;
     ///         let inner = Inner::read(reader)?;
     ///         reader.decrement_depth();
     ///         Ok(Self { inner })
     ///     }
     /// }
     ///
-    /// impl<'de> FromMessagePack<'de> for Inner {
-    ///     fn read<R: Read<'de>>(reader: &mut R) -> Result<Self> {
+    /// impl<'de> zerompk::FromMessagePack<'de> for Inner {
+    ///     fn read<R: zerompk::Read<'de>>(reader: &mut R) -> zerompk::Result<Self> {
     ///         reader.increment_depth()?;
     ///         let value = reader.read_i32()?;
     ///         reader.decrement_depth();
     ///         Ok(Self { value })
     ///     }
     /// }
-    /// ``
+    /// ```
     ///
     fn increment_depth(&mut self) -> Result<()>;
 
