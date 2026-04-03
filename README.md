@@ -24,7 +24,7 @@ pub struct Person {
 
 fn main() {
     let person = Person {
-        name: "Alice",
+        name: "Alice".to_string(),
         age: 18,
     };
     
@@ -43,10 +43,10 @@ The correspondence between Rust types and MessagePack types in zerompk is as fol
 | `u8`, `u16`, `u32`, `u64`, `usize`                                                             | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 | `i8`, `i16`, `i32`, `i64`, `isize`                                                             | `positive fixint`, `negative fixint`, `int 8`, `int 16`, `int 32`, `int 64` |
 | `f32`, `f64`                                                                                   | `float 32`, `float 64`                                                      |
-| `str`, `String`                                                                                | `fixstr`, `str 8`, `str1 6`, `str 32`                                       |
+| `str`, `String`                                                                                | `fixstr`, `str 8`, `str 16`, `str 32`                                       |
 | `[u8]`                                                                                         | `bin 8`, `bin 16`, `bin 32`                                                 |
 | `&[T]`, `Vec<T>`, `VecDeque<T>`, `LinkedList<T>`, `HashSet<T>`, `BTreeSet<T>`, `BinaryHeap<T>` | `fixarray`, `array 16`, `array 32`                                          |
-| `HashMap<K, V>`, `BTreeMap<K, V?`                                                              | `fixmap`, `map 16`, `map 32`                                                |
+| `HashMap<K, V>`, `BTreeMap<K, V>`                                                              | `fixmap`, `map 16`, `map 32`                                                |
 | `()`                                                                                           | `nil`                                                                       |
 | `Option<T>`                                                                                    | `nil` (`None`) or `T` (`Some(T)`)                                           |
 | `(T0, T1)`, `(T0, T1, T2)`, ...                                                                | `fixarray`, `array 16`, `array 32`                                          |
@@ -476,13 +476,13 @@ pub struct NoCopy<'a> {
     pub bin: &'a [u8],
 }
 
-fn main() -> Result<()> {
+fn main() -> zerompk::Result<()> {
     let value = NoCopy {
         str: "hello",
         bin: &[0x01, 0x02, 0x03],
     };
     let msgpack = zerompk::to_msgpack_vec(&value)?;
-    let value: NoCopy = zerompk::from_msgpack(data)?;
+    let value: NoCopy = zerompk::from_msgpack(&msgpack)?;
 }
 ```
 
@@ -515,27 +515,27 @@ Many of these optimizations are inspired by the high-performance MessagePack ser
 
 ### Serialize/Deserialize Struct (with 4 fields, map format) 1000 times
 
-| Crate              | Serialize | Deserialize |
-| ------------------ | --------: | ----------: |
-| `serde_json`(JSON) |  98.33 μs |   329.12 μs |
-| `rmp_serde`        |  92.63 μs |    98.31 μs |
-| `zerompk`          |  18.76 μs |    71.19 μs |
-| `msgpacker`        |       N/A |         N/A |
+| Crate               | Serialize | Deserialize |
+| ------------------- | --------: | ----------: |
+| `serde_json` (JSON) |  98.33 μs |   329.12 μs |
+| `rmp_serde`         |  92.63 μs |    98.31 μs |
+| `zerompk`           |  18.76 μs |    71.19 μs |
+| `msgpacker`         |       N/A |         N/A |
 
 ### Serialize/Deserialize Array (struct with 2 fields, 1000 elements) 1000 times
 
-| Crate              |    Serialize |  Deserialize |
-| ------------------ | -----------: | -----------: |
-| `serde_json`(JSON) | 22,369.22 μs | 37,034.55 μs |
-| `rmp_serde`        |  9,803.24 μs | 10,839.79 μs |
-| `msgpacker`        | 10,981.52 μs |  4,608.72 μs |
-| `zerompk`          |  6,310.66 μs |  3,571.90 μs |
+| Crate               |    Serialize |  Deserialize |
+| ------------------- | -----------: | -----------: |
+| `serde_json` (JSON) | 22,369.22 μs | 37,034.55 μs |
+| `rmp_serde`         |  9,803.24 μs | 10,839.79 μs |
+| `msgpacker`         | 10,981.52 μs |  4,608.72 μs |
+| `zerompk`           |  6,310.66 μs |  3,571.90 μs |
 
 ### Serialize/Deserialize Struct (with 2 fields, no-copy) 1000 times
 
 | Crate       | Serialize | Deserialize |
 | ----------- | --------: | ----------: |
-| `rmp_serde` |  15.47 μs |    16,82 μs |
+| `rmp_serde` |  15.47 μs |    16.82 μs |
 | `zerompk`   |   8.57 μs |    10.33 μs |
 
 ## Security
@@ -545,7 +545,7 @@ zerompk always requires strict type schemas for serialization/deserialization, m
 - Stack overflow caused by excessive object nesting. zerompk rejects objects nested beyond `MAX_DEPTH = 500` and returns an error.
 - Memory consumption due to large size headers. zerompk validates header sizes before memory allocation and returns an error if the buffer is insufficient.
 
-However, note that these measures are for general attacks and do not validate the data itself. When deserializing untrusted data, ensure proper authentication on the application side.
+However, note that these measures are for general attacks and do not validate the data itself. When deserializing untrusted data, ensure proper validation on the application side.
 
 ## License
 

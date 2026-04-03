@@ -24,7 +24,7 @@ pub struct Person {
 
 fn main() {
     let person = Person {
-        name: "Alice",
+        name: "Alice".to_string(),
         age: 18,
     };
     
@@ -43,10 +43,10 @@ zerompkにおけるRustとMessagePackの型の対応は以下の通りです。M
 | `u8`, `u16`, `u32`, `u64`, `usize`                                                             | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 | `i8`, `i16`, `i32`, `i64`, `isize`                                                             | `positive fixint`, `negative fixint`, `int 8`, `int 16`, `int 32`, `int 64` |
 | `f32`, `f64`                                                                                   | `float 32`, `float 64`                                                      |
-| `str`, `String`                                                                                | `fixstr`, `str 8`, `str1 6`, `str 32`                                       |
+| `str`, `String`                                                                                | `fixstr`, `str 8`, `str 16`, `str 32`                                       |
 | `[u8]`                                                                                         | `bin 8`, `bin 16`, `bin 32`                                                 |
 | `&[T]`, `Vec<T>`, `VecDeque<T>`, `LinkedList<T>`, `HashSet<T>`, `BTreeSet<T>`, `BinaryHeap<T>` | `fixarray`, `array 16`, `array 32`                                          |
-| `HashMap<K, V>`, `BTreeMap<K, V?`                                                              | `fixmap`, `map 16`, `map 32`                                                |
+| `HashMap<K, V>`, `BTreeMap<K, V>`                                                              | `fixmap`, `map 16`, `map 32`                                                |
 | `()`                                                                                           | `nil`                                                                       |
 | `Option<T>`                                                                                    | `nil` (`None`) or `T` (`Some(T)`)                                           |
 | `(T0, T1)`, `(T0, T1, T2)`, ...                                                                | `fixarray`, `array 16`, `array 32`                                          |
@@ -476,13 +476,13 @@ pub struct NoCopy<'a> {
     pub bin: &'a [u8],
 }
 
-fn main() -> Result<()> {
+fn main() -> zerompk::Result<()> {
     let value = NoCopy {
         str: "hello",
         bin: &[0x01, 0x02, 0x03],
     };
     let msgpack = zerompk::to_msgpack_vec(&value)?;
-    let value: NoCopy = zerompk::from_msgpack(data)?;
+    let value: NoCopy = zerompk::from_msgpack(&msgpack)?;
 }
 ```
 
@@ -517,25 +517,25 @@ MessagePackフォーマット上の制約から、zero-copyデシリアライズ
 
 | Crate              | Serialize | Deserialize |
 | ------------------ | --------: | ----------: |
-| `serde_json`(JSON) |  98.33 μs |   329.12 μs |
-| `rmp_serde`        |  92.63 μs |    98.31 μs |
-| `zerompk`          |  18.76 μs |    71.19 μs |
-| `msgpacker`        |       N/A |         N/A |
+| `serde_json` (JSON) |  98.33 μs |   329.12 μs |
+| `rmp_serde`         |  92.63 μs |    98.31 μs |
+| `zerompk`           |  18.76 μs |    71.19 μs |
+| `msgpacker`         |       N/A |         N/A |
 
 ### Serialize/Deserialize Array (struct with 2 fields, 1000 elements) 1000 times
 
 | Crate              |    Serialize |  Deserialize |
 | ------------------ | -----------: | -----------: |
-| `serde_json`(JSON) | 22,369.22 μs | 37,034.55 μs |
-| `rmp_serde`        |  9,803.24 μs | 10,839.79 μs |
-| `msgpacker`        | 10,981.52 μs |  4,608.72 μs |
-| `zerompk`          |  2,632.23 μs |  3,571.90 μs |
+| `serde_json` (JSON) | 22,369.22 μs | 37,034.55 μs |
+| `rmp_serde`         |  9,803.24 μs | 10,839.79 μs |
+| `msgpacker`         | 10,981.52 μs |  4,608.72 μs |
+| `zerompk`           |  2,632.23 μs |  3,571.90 μs |
 
 ### Serialize/Deserialize Struct (with 2 fields, no-copy) 1000 times
 
 | Crate       | Serialize | Deserialize |
 | ----------- | --------: | ----------: |
-| `rmp_serde` |  15.47 μs |    16,82 μs |
+| `rmp_serde` |  15.47 μs |    16.82 μs |
 | `zerompk`   |   8.57 μs |    10.33 μs |
 
 ## セキュリティ
@@ -545,7 +545,7 @@ zerompkはシリアライズ/デシリアライズに対して常に厳格な型
 - 過剰なオブジェクトのネストによるスタックオーバーフロー。zerompkは`MAX_DEPTH = 500`を超えるオブジェクトのネストを拒否し、エラーを返します。
 - 巨大なサイズヘッダによるメモリの消費。zerompkはメモリ確保を行う前にヘッダのサイズの検証を行い、バッファが不足している場合はエラーを返します。
 
-ただし、これらの対策は一般的な攻撃に対するものであり、データ自体のチェックは行わないことに注意してください。信頼出来ないデータをデシリアライズする場合は、アプリケーション側で適切な認証を行ってください。
+ただし、これらの対策は一般的な攻撃に対するものであり、データ自体のチェックは行わないことに注意してください。信頼出来ないデータをデシリアライズする場合は、アプリケーション側で適切なバリデーションを行ってください。
 
 ## ライセンス
 
