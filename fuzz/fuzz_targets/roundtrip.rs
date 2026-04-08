@@ -24,7 +24,7 @@ struct FuzzNested {
 
 fuzz_target!(|value: FuzzValue| {
     if let Ok(buf) = zerompk::to_msgpack_vec(&value) {
-        let decoded = zerompk::from_msgpack_slice::<FuzzValue>(&buf)
+        let decoded = zerompk::from_msgpack::<FuzzValue>(&buf)
             .expect("roundtrip decode must succeed for encoded data");
         assert_eq!(decoded, value);
     }
