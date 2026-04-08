@@ -27,7 +27,7 @@ pub trait Read<'de> {
     ///
     /// ```rust
     /// use zerompk::{Read, FromMessagePack, Result};
-    /// 
+    ///
     /// struct Outer {
     ///     inner: Inner,
     /// }

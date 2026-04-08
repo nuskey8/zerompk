@@ -8,7 +8,7 @@ use crate::{Error, Result, consts::*};
 ///
 /// ```rust
 /// use zerompk::{ToMessagePack, Write, Result};
-/// 
+///
 /// struct Point {
 ///     x: i32,
 ///     y: i32,
@@ -637,7 +637,12 @@ impl<'a> Write for SliceWriter<'a> {
                 unsafe {
                     let (header, body) = buf.split_at_mut(4);
                     let len_bytes = (len as u16).to_be_bytes();
-                    header.copy_from_slice(&[EXT16_MARKER, len_bytes[0], len_bytes[1], type_id as u8]);
+                    header.copy_from_slice(&[
+                        EXT16_MARKER,
+                        len_bytes[0],
+                        len_bytes[1],
+                        type_id as u8,
+                    ]);
                     core::ptr::copy_nonoverlapping(data.as_ptr(), body.as_mut_ptr(), len);
                 }
                 Ok(())

@@ -143,10 +143,10 @@ pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> 
 ///
 /// fn main() {
 ///     let point = Point { x: 1, y: 2 };
-/// 
+///
 ///     let mut buf = Vec::new();
 ///     let mut cursor = std::io::Cursor::new(&mut buf);
-/// 
+///
 ///     zerompk::write_msgpack(&mut cursor, &point).unwrap();
 /// }
 /// ```
@@ -170,7 +170,7 @@ pub fn write_msgpack<T: ToMessagePack, W: std::io::Write>(writer: &mut W, value:
 ///     x: i32,
 ///     y: i32,
 /// }
-/// 
+///
 /// fn main() {
 ///     let vec = vec![0x92, 0x01, 0x02];
 ///     let mut cursor = std::io::Cursor::new(vec);
