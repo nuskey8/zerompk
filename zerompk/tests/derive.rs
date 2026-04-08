@@ -158,6 +158,23 @@ struct CowPayloadAsBinExplicit<'a> {
     data: std::borrow::Cow<'a, [u8]>,
 }
 
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct VecPayloadDefault {
+    data: Vec<u8>,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct VecPayloadAsArray {
+    #[msgpack(as_bytes = false)]
+    data: Vec<u8>,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct VecPayloadAsBinExplicit {
+    #[msgpack(as_bytes = true)]
+    data: Vec<u8>,
+}
+
 fn recursive_node_msgpack(depth: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(depth + 1);
     for _ in 0..depth {
@@ -366,6 +383,45 @@ fn derive_cow_u8_with_as_bytes_true_is_bin() {
     assert_eq!(encoded, vec![0x91, 0xc4, 0x03, 0x01, 0x02, 0x03]);
 
     let decoded: CowPayloadAsBinExplicit = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_vec_u8_default_is_bin() {
+    let value = VecPayloadDefault {
+        data: vec![1, 2, 3],
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(encoded, vec![0x91, 0xc4, 0x03, 0x01, 0x02, 0x03]);
+
+    let decoded: VecPayloadDefault = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_vec_u8_with_as_bytes_false_is_array() {
+    let value = VecPayloadAsArray {
+        data: vec![1, 2, 3],
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(encoded, vec![0x91, 0x93, 0x01, 0x02, 0x03]);
+
+    let decoded: VecPayloadAsArray = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_vec_u8_with_as_bytes_true_is_bin() {
+    let value = VecPayloadAsBinExplicit {
+        data: vec![1, 2, 3],
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(encoded, vec![0x91, 0xc4, 0x03, 0x01, 0x02, 0x03]);
+
+    let decoded: VecPayloadAsBinExplicit = zerompk::from_msgpack(&encoded).unwrap();
     assert_eq!(decoded, value);
 }
 

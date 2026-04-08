@@ -422,7 +422,7 @@ fn parse_field_config(field: &Field) -> Result<FieldConfig> {
     if as_bytes.is_some() && !is_bin_type(&field.ty) {
         return Err(syn::Error::new(
             field.span(),
-            "`as_bytes` can be used only with `&[u8]` or `Cow<[u8]>` fields",
+            "`as_bytes` can be used only with `&[u8]`, `Cow<[u8]>`, or `Vec<u8>` fields",
         ));
     }
 
@@ -555,8 +555,34 @@ fn is_cow_u8_slice(ty: &Type) -> bool {
     })
 }
 
+fn is_vec_u8(ty: &Type) -> bool {
+    let Type::Path(type_path) = ty else {
+        return false;
+    };
+
+    let Some(last) = type_path.path.segments.last() else {
+        return false;
+    };
+
+    if last.ident != "Vec" {
+        return false;
+    }
+
+    let PathArguments::AngleBracketed(args) = &last.arguments else {
+        return false;
+    };
+
+    args.args.iter().any(|arg| {
+        let GenericArgument::Type(Type::Path(path)) = arg else {
+            return false;
+        };
+
+        path.path.is_ident("u8")
+    })
+}
+
 fn is_bin_type(ty: &Type) -> bool {
-    is_ref_u8_slice(ty) || is_cow_u8_slice(ty)
+    is_ref_u8_slice(ty) || is_cow_u8_slice(ty) || is_vec_u8(ty)
 }
 
 fn should_use_bin(ty: &Type, cfg: Option<&FieldConfig>) -> bool {
@@ -575,7 +601,7 @@ fn build_read_expr(ty: &Type, cfg: Option<&FieldConfig>) -> proc_macro2::TokenSt
         quote! {
             <&'__msgpack_de [u8] as ::zerompk::FromMessagePack<'__msgpack_de>>::read(reader)?
         }
-    } else if is_cow_u8_slice(ty) && should_use_bin(ty, cfg) {
+    } else if (is_cow_u8_slice(ty) || is_vec_u8(ty)) && should_use_bin(ty, cfg) {
         quote! {
             ::core::convert::From::from(reader.read_binary()?.into_owned())
         }
