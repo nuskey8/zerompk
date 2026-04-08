@@ -138,6 +138,18 @@ pub enum Status {
 }
 ```
 
+### as_bytes
+
+`u8`配列をバイナリとしてシリアライズするかどうかを指定できます。デフォルト値は`true`です。このオプションは`&[u8]`、`Vec<u8>`、`Cow<[u8]>`型のフィールドに対して適用できます。
+
+```rust
+#[derive(ToMessagePack, FromMessagePack)]
+struct Foo<'a> {
+    #[msgpack(as_bytes = true)]
+    data: Vec<u8>,
+}
+```
+
 ## 設計哲学
 
 最もメジャーなMessagePackシリアライザである[rmp](https://github.com/3Hren/msgpack-rust)は十分に最適化されていますが、zerompkはそれ以上にパフォーマンスに注力した設計になっています。

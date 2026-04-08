@@ -138,6 +138,18 @@ pub enum Status {
 }
 ```
 
+### as_bytes
+
+You can specify whether to serialize a `u8` array as binary. The default value is `true`. This option can be applied to fields of type `&[u8]`, `Vec<u8>`, and `Cow<[u8]>`.
+
+```rust
+#[derive(ToMessagePack, FromMessagePack)]
+struct Foo<'a> {
+    #[msgpack(as_bytes = true)]
+    data: Vec<u8>,
+}
+```
+
 ## Design Philosophy
 
 The most popular MessagePack serializer, [rmp](https://github.com/3Hren/msgpack-rust), is highly optimized, but zerompk is designed with an even greater focus on performance.
