@@ -1666,12 +1666,7 @@ impl<W: std::io::Write> Write for IOWriter<W> {
     fn write_binary(&mut self, data: &[u8]) -> Result<()> {
         let len = data.len();
         match len {
-            0..=31 => {
-                self.write_all(&[0xb0 | (len as u8)])?;
-                self.write_all(data)?;
-                Ok(())
-            }
-            32..=255 => {
+            0..=255 => {
                 self.write_all(&[BIN8_MARKER, len as u8])?;
                 self.write_all(data)?;
                 Ok(())
