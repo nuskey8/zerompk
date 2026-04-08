@@ -1,4 +1,5 @@
 use crate::common::{Nested, Point};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 
 #[cfg(feature = "std")]
@@ -211,6 +212,14 @@ fn test_vec_deserialization() {
     let data = [0x93, 0x01, 0x02, 0x03];
     let value: Vec<i32> = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(value, vec![1, 2, 3]);
+}
+
+#[test]
+fn test_cow_slice_deserialization_from_array() {
+    let data = [0x93, 0x01, 0x02, 0x03];
+    let value: Cow<'_, [i32]> = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(value.as_ref(), &[1, 2, 3]);
+    assert!(matches!(value, Cow::Owned(_)));
 }
 
 #[test]

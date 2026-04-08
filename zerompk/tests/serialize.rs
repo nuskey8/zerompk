@@ -1,4 +1,5 @@
 use crate::common::Point;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 use std::rc::Rc;
 
@@ -196,6 +197,20 @@ fn test_vec_serialization_and_roundtrip() {
 
     let decoded: Vec<i32> = zerompk::from_msgpack(&bytes).unwrap();
     assert_eq!(decoded, v);
+}
+
+#[test]
+fn test_generic_slice_serialization_as_array() {
+    let value: &[i32] = &[1, 2, 3];
+    let bytes = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(bytes, vec![0x93, 0x01, 0x02, 0x03]);
+}
+
+#[test]
+fn test_cow_slice_serialization_as_array() {
+    let value: Cow<'_, [i32]> = Cow::Borrowed(&[1, 2, 3]);
+    let bytes = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(bytes, vec![0x93, 0x01, 0x02, 0x03]);
 }
 
 #[test]

@@ -140,6 +140,24 @@ struct BorrowedList<'a> {
     foo: Vec<&'a str>,
 }
 
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct CowPayload<'a> {
+    data: std::borrow::Cow<'a, [u8]>,
+    nums: std::borrow::Cow<'a, [i32]>,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct CowPayloadAsArray<'a> {
+    #[msgpack(as_bytes = false)]
+    data: std::borrow::Cow<'a, [u8]>,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct CowPayloadAsBinExplicit<'a> {
+    #[msgpack(as_bytes = true)]
+    data: std::borrow::Cow<'a, [u8]>,
+}
+
 fn recursive_node_msgpack(depth: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(depth + 1);
     for _ in 0..depth {
@@ -296,6 +314,59 @@ fn derive_nested_borrowed_vec_of_str() {
     assert_eq!(decoded, value);
     assert_eq!(decoded.foo[0].as_ptr(), encoded[3..8].as_ptr());
     assert_eq!(decoded.foo[1].as_ptr(), encoded[9..14].as_ptr());
+}
+
+#[test]
+fn derive_cow_u8_is_bin_and_other_cow_slice_is_array() {
+    let value = CowPayload {
+        data: std::borrow::Cow::Borrowed(&[1, 2, 3]),
+        nums: std::borrow::Cow::Borrowed(&[10, 20]),
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(
+        encoded,
+        vec![
+            0x92, // [data, nums]
+            0xc4, 0x03, 0x01, 0x02, 0x03, // data: bin(3)
+            0x92, 0x0a, 0x14, // nums: [10, 20]
+        ]
+    );
+
+    let decoded: CowPayload = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_cow_u8_with_as_bytes_false_is_array() {
+    let value = CowPayloadAsArray {
+        data: std::borrow::Cow::Borrowed(&[1, 2, 3]),
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(
+        encoded,
+        vec![
+            0x91, // [data]
+            0x93, 0x01, 0x02, 0x03, // data: [1, 2, 3]
+        ]
+    );
+
+    let decoded: CowPayloadAsArray = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_cow_u8_with_as_bytes_true_is_bin() {
+    let value = CowPayloadAsBinExplicit {
+        data: std::borrow::Cow::Borrowed(&[1, 2, 3]),
+    };
+
+    let encoded = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(encoded, vec![0x91, 0xc4, 0x03, 0x01, 0x02, 0x03]);
+
+    let decoded: CowPayloadAsBinExplicit = zerompk::from_msgpack(&encoded).unwrap();
+    assert_eq!(decoded, value);
 }
 
 #[test]

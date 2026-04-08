@@ -2,8 +2,9 @@ use proc_macro::TokenStream;
 
 use quote::{format_ident, quote};
 use syn::{
-    Data, DataEnum, DataStruct, DeriveInput, Field, Fields, Generics, Ident, Lit, LitInt, LitStr,
-    Result, Type, Variant, parse_macro_input, parse_quote, spanned::Spanned,
+    Data, DataEnum, DataStruct, DeriveInput, Field, Fields, GenericArgument, Generics, Ident, Lit,
+    LitInt, LitStr, PathArguments, Result, Type, Variant, parse_macro_input, parse_quote,
+    spanned::Spanned,
 };
 
 #[derive(Clone, Copy)]
@@ -353,11 +354,13 @@ struct VariantConfig {
 struct FieldConfig {
     key: Option<KeyAttr>,
     ignore: bool,
+    as_bytes: Option<bool>,
 }
 
 fn parse_field_config(field: &Field) -> Result<FieldConfig> {
     let mut key: Option<KeyAttr> = None;
     let mut ignore = false;
+    let mut as_bytes: Option<bool> = None;
 
     for attr in &field.attrs {
         if !attr.path().is_ident("msgpack") {
@@ -387,11 +390,24 @@ fn parse_field_config(field: &Field) -> Result<FieldConfig> {
                 }
                 ignore = true;
                 Ok(())
+            } else if meta.path.is_ident("as_bytes") {
+                if as_bytes.is_some() {
+                    return Err(meta.error("duplicate `as_bytes` attribute"));
+                }
+                let value = meta.value()?;
+                let lit: Lit = value.parse()?;
+                as_bytes = Some(match lit {
+                    Lit::Bool(v) => v.value,
+                    _ => {
+                        return Err(meta.error("`as_bytes` must be a boolean literal"));
+                    }
+                });
+                Ok(())
             } else if meta.path.is_ident("array") || meta.path.is_ident("map") {
                 Err(meta.error("field-level msgpack attribute does not support `array/map`"))
             } else {
                 Err(meta
-                    .error("field-level msgpack attribute supports only `key = ...` or `ignore`"))
+                    .error("field-level msgpack attribute supports only `key = ...`, `ignore`, or `as_bytes = true/false`"))
             }
         })?;
     }
@@ -403,7 +419,25 @@ fn parse_field_config(field: &Field) -> Result<FieldConfig> {
         ));
     }
 
-    Ok(FieldConfig { key, ignore })
+    if as_bytes.is_some() && !is_bin_type(&field.ty) {
+        return Err(syn::Error::new(
+            field.span(),
+            "`as_bytes` can be used only with `&[u8]` or `Cow<[u8]>` fields",
+        ));
+    }
+
+    if matches!(as_bytes, Some(false)) && is_ref_u8_slice(&field.ty) {
+        return Err(syn::Error::new(
+            field.span(),
+            "`as_bytes = false` is not supported for `&[u8]`; use `Cow<[u8]>` if array representation is needed",
+        ));
+    }
+
+    Ok(FieldConfig {
+        key,
+        ignore,
+        as_bytes,
+    })
 }
 
 fn parse_variant_config(variant: &Variant) -> Result<VariantConfig> {
@@ -492,14 +526,58 @@ fn is_ref_u8_slice(ty: &Type) -> bool {
     }
 }
 
-fn build_read_expr(ty: &Type) -> proc_macro2::TokenStream {
+fn is_cow_u8_slice(ty: &Type) -> bool {
+    let Type::Path(type_path) = ty else {
+        return false;
+    };
+
+    let Some(last) = type_path.path.segments.last() else {
+        return false;
+    };
+
+    if last.ident != "Cow" {
+        return false;
+    }
+
+    let PathArguments::AngleBracketed(args) = &last.arguments else {
+        return false;
+    };
+
+    args.args.iter().any(|arg| {
+        let GenericArgument::Type(Type::Slice(slice)) = arg else {
+            return false;
+        };
+
+        matches!(
+            slice.elem.as_ref(),
+            Type::Path(path) if path.path.is_ident("u8")
+        )
+    })
+}
+
+fn is_bin_type(ty: &Type) -> bool {
+    is_ref_u8_slice(ty) || is_cow_u8_slice(ty)
+}
+
+fn should_use_bin(ty: &Type, cfg: Option<&FieldConfig>) -> bool {
+    if !is_bin_type(ty) {
+        return false;
+    }
+    cfg.and_then(|v| v.as_bytes).unwrap_or(true)
+}
+
+fn build_read_expr(ty: &Type, cfg: Option<&FieldConfig>) -> proc_macro2::TokenStream {
     if is_ref_str(ty) {
         quote! {
             <&'__msgpack_de str as ::zerompk::FromMessagePack<'__msgpack_de>>::read(reader)?
         }
-    } else if is_ref_u8_slice(ty) {
+    } else if is_ref_u8_slice(ty) && should_use_bin(ty, cfg) {
         quote! {
             <&'__msgpack_de [u8] as ::zerompk::FromMessagePack<'__msgpack_de>>::read(reader)?
+        }
+    } else if is_cow_u8_slice(ty) && should_use_bin(ty, cfg) {
+        quote! {
+            ::core::convert::From::from(reader.read_binary()?.into_owned())
         }
     } else {
         quote! {
@@ -508,14 +586,18 @@ fn build_read_expr(ty: &Type) -> proc_macro2::TokenStream {
     }
 }
 
-fn build_write_expr(value: proc_macro2::TokenStream, ty: &Type) -> proc_macro2::TokenStream {
+fn build_write_expr(
+    value: proc_macro2::TokenStream,
+    ty: &Type,
+    cfg: Option<&FieldConfig>,
+) -> proc_macro2::TokenStream {
     if is_ref_str(ty) {
         quote! {
             writer.write_string(#value)?;
         }
-    } else if is_ref_u8_slice(ty) {
+    } else if should_use_bin(ty, cfg) {
         quote! {
-            writer.write_binary(#value)?;
+            writer.write_binary(::core::convert::AsRef::<[u8]>::as_ref(&#value))?;
         }
     } else {
         quote! {
@@ -786,7 +868,8 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Some(i) => {
                         let name = &names[*i];
                         let ty = &tys[*i];
-                        build_write_expr(quote! { self.#name }, ty)
+                        let cfg = &field_configs[*i];
+                        build_write_expr(quote! { self.#name }, ty, Some(cfg))
                     }
                     None => quote! { writer.write_nil()?; },
                 })
@@ -798,7 +881,8 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Some(i) => {
                         let name = &names[*i];
                         let ty = &tys[*i];
-                        let read_expr = build_read_expr(ty);
+                        let cfg = &field_configs[*i];
+                        let read_expr = build_read_expr(ty, Some(cfg));
                         quote! { let #name = #read_expr; }
                     }
                     None => quote! { reader.read_nil()?; },
@@ -828,8 +912,9 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 let direct_fields: Vec<_> = names
                     .iter()
                     .zip(tys.iter())
-                    .map(|(name, ty)| {
-                        let read_expr = build_read_expr(ty);
+                    .zip(field_configs.iter())
+                    .map(|((name, ty), cfg)| {
+                        let read_expr = build_read_expr(ty, Some(cfg));
                         quote! { #name: #read_expr }
                     })
                     .collect();
@@ -863,8 +948,9 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     .expect("single unnamed field")
                     .ty
                     .clone();
-                let write_expr = build_write_expr(quote! { self.0 }, &ty);
-                let read_expr = build_read_expr(&ty);
+                let cfg = &field_configs[0];
+                let write_expr = build_write_expr(quote! { self.0 }, &ty, Some(cfg));
+                let read_expr = build_read_expr(&ty, Some(cfg));
 
                 let write = quote! {
                     #write_expr
@@ -897,7 +983,8 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Some(i) => {
                         let field_idx = &idx[*i];
                         let ty = &tys[*i];
-                        build_write_expr(quote! { self.#field_idx }, ty)
+                        let cfg = &field_configs[*i];
+                        build_write_expr(quote! { self.#field_idx }, ty, Some(cfg))
                     }
                     None => quote! { writer.write_nil()?; },
                 })
@@ -909,7 +996,8 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Some(i) => {
                         let var = &vars[*i];
                         let ty = &tys[*i];
-                        let read_expr = build_read_expr(ty);
+                        let cfg = &field_configs[*i];
+                        let read_expr = build_read_expr(ty, Some(cfg));
                         quote! { let #var = #read_expr; }
                     }
                     None => quote! { reader.read_nil()?; },
@@ -936,7 +1024,11 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 .collect();
 
             let read = if is_dense_sequential {
-                let direct_values: Vec<_> = tys.iter().map(build_read_expr).collect();
+                let direct_values: Vec<_> = tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .map(|(ty, cfg)| build_read_expr(ty, Some(cfg)))
+                    .collect();
 
                 quote! {
                     reader.check_array_len(#array_len)?;
@@ -1005,7 +1097,8 @@ fn expand_map_struct(data: &DataStruct) -> Result<ImplBody> {
             let key_name = &key_lits[idx];
             let slot = &slots[idx];
             let ty = &tys[idx];
-            let read_expr = build_read_expr(ty);
+            let cfg = &field_configs[field_indices[idx]];
+            let read_expr = build_read_expr(ty, Some(cfg));
             quote! {
                 #idx => {
                     if #slot.is_some() {
@@ -1031,7 +1124,11 @@ fn expand_map_struct(data: &DataStruct) -> Result<ImplBody> {
     let value_writes: Vec<_> = names
         .iter()
         .zip(tys.iter())
-        .map(|(name, ty)| build_write_expr(quote! { self.#name }, ty))
+        .enumerate()
+        .map(|(idx, (name, ty))| {
+            let cfg = &field_configs[field_indices[idx]];
+            build_write_expr(quote! { self.#name }, ty, Some(cfg))
+        })
         .collect();
 
     let write = quote! {
@@ -1338,7 +1435,8 @@ fn build_enum_variant_payload(
                     Some(i) => {
                         let v = &bind_vars[*i];
                         let ty = &tys[*i];
-                        build_write_expr(quote! { #v }, ty)
+                        let cfg = &field_configs[*i];
+                        build_write_expr(quote! { #v }, ty, Some(cfg))
                     }
                     None => quote! { writer.write_nil()?; },
                 })
@@ -1351,7 +1449,8 @@ fn build_enum_variant_payload(
                     Some(i) => {
                         let rv = &read_vars[*i];
                         let ty = &tys[*i];
-                        let read_expr = build_read_expr(ty);
+                        let cfg = &field_configs[*i];
+                        let read_expr = build_read_expr(ty, Some(cfg));
                         quote! { let #rv = #read_expr; }
                     }
                     None => quote! { reader.read_nil()?; },
@@ -1381,7 +1480,11 @@ fn build_enum_variant_payload(
             };
 
             let read_ctor = if is_dense_sequential {
-                let direct_values: Vec<_> = tys.iter().map(build_read_expr).collect();
+                let direct_values: Vec<_> = tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .map(|(ty, cfg)| build_read_expr(ty, Some(cfg)))
+                    .collect();
 
                 quote! {
                     reader.check_array_len(#payload_len)?;
@@ -1457,7 +1560,8 @@ fn build_enum_variant_payload(
                             Some(i) => {
                                 let n = &names[*i];
                                 let ty = &tys[*i];
-                                build_write_expr(quote! { #n }, ty)
+                                let cfg = &field_configs[*i];
+                                build_write_expr(quote! { #n }, ty, Some(cfg))
                             }
                             None => quote! { writer.write_nil()?; },
                         })
@@ -1469,7 +1573,8 @@ fn build_enum_variant_payload(
                             Some(i) => {
                                 let n = &names[*i];
                                 let ty = &tys[*i];
-                                let read_expr = build_read_expr(ty);
+                                let cfg = &field_configs[*i];
+                                let read_expr = build_read_expr(ty, Some(cfg));
                                 quote! { let #n = #read_expr; }
                             }
                             None => quote! { reader.read_nil()?; },
@@ -1502,8 +1607,9 @@ fn build_enum_variant_payload(
                         let direct_fields: Vec<_> = names
                             .iter()
                             .zip(tys.iter())
-                            .map(|(n, ty)| {
-                                let read_expr = build_read_expr(ty);
+                            .zip(field_configs.iter())
+                            .map(|((n, ty), cfg)| {
+                                let read_expr = build_read_expr(ty, Some(cfg));
                                 quote! { #n: #read_expr }
                             })
                             .collect();
@@ -1552,7 +1658,8 @@ fn build_enum_variant_payload(
                             let key_name = &key_lits[idx];
                             let slot = &slot_vars[idx];
                             let ty = &active_tys[idx];
-                            let read_expr = build_read_expr(ty);
+                            let cfg = &field_configs[field_indices[idx]];
+                            let read_expr = build_read_expr(ty, Some(cfg));
                             quote! {
                                 #idx => {
                                     if #slot.is_some() {
@@ -1585,7 +1692,11 @@ fn build_enum_variant_payload(
                     let active_write_parts: Vec<_> = active_names
                         .iter()
                         .zip(active_tys.iter())
-                        .map(|(name, ty)| build_write_expr(quote! { #name }, ty))
+                        .enumerate()
+                        .map(|(idx, (name, ty))| {
+                            let cfg = &field_configs[field_indices[idx]];
+                            build_write_expr(quote! { #name }, ty, Some(cfg))
+                        })
                         .collect();
                     let write_payload = quote! {
                         writer.write_map_len(#count)?;

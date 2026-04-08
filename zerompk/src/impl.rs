@@ -176,14 +176,19 @@ where
     }
 }
 
-impl ToMessagePack for [u8] {
+impl<T: ToMessagePack> ToMessagePack for [T] {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
-        writer.write_binary(self)
+        writer.write_array_len(self.len())?;
+        for item in self {
+            item.write(writer)?;
+        }
+        Ok(())
     }
 }
 
 impl<'a, T: FromMessagePack<'a>, const N: usize> FromMessagePack<'a> for [T; N] {
+    #[inline(always)]
     fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self> {
         reader.check_array_len(N)?;
         let mut arr: core::mem::MaybeUninit<[T; N]> = core::mem::MaybeUninit::uninit();
@@ -198,6 +203,7 @@ impl<'a, T: FromMessagePack<'a>, const N: usize> FromMessagePack<'a> for [T; N] 
 }
 
 impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
+    #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_array_len(N)?;
         for item in self {
@@ -244,20 +250,24 @@ impl ToMessagePack for alloc::borrow::Cow<'_, str> {
     }
 }
 
-impl<'a> FromMessagePack<'a> for alloc::borrow::Cow<'a, [u8]> {
+impl<'de, 'a, T> FromMessagePack<'de> for alloc::borrow::Cow<'a, [T]>
+where
+    'de: 'a,
+    T: Clone + FromMessagePack<'de>,
+{
     #[inline(always)]
-    fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self>
+    fn read<R: Read<'de>>(reader: &mut R) -> crate::Result<Self>
     where
         Self: Sized,
     {
-        reader.read_binary()
+        Ok(alloc::borrow::Cow::Owned(reader.read_array()?))
     }
 }
 
-impl ToMessagePack for alloc::borrow::Cow<'_, [u8]> {
+impl<T: Clone + ToMessagePack> ToMessagePack for alloc::borrow::Cow<'_, [T]> {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
-        writer.write_binary(self)
+        self.as_ref().write(writer)
     }
 }
 
@@ -265,14 +275,14 @@ impl ToMessagePack for alloc::borrow::Cow<'_, [u8]> {
 // reference types
 // -------------------------------------------------------------------------------
 
-impl<T: ToMessagePack> ToMessagePack for &T {
+impl<T: ToMessagePack + ?Sized> ToMessagePack for &T {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         T::write(&self, writer)
     }
 }
 
-impl<T: ToMessagePack> ToMessagePack for &mut T {
+impl<T: ToMessagePack + ?Sized> ToMessagePack for &mut T {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         T::write(&self, writer)
     }
