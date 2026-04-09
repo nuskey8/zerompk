@@ -1171,6 +1171,7 @@ fn expand_map_struct(data: &DataStruct) -> Result<ImplBody> {
 
         #( let mut #slots: ::core::option::Option<#tys> = ::core::option::Option::None; )*
 
+        #[allow(clippy::reversed_empty_ranges)]
         for _ in 0..#count {
             let __key_bytes = reader.read_string_bytes()?;
             let __key_bytes = __key_bytes.as_ref();
@@ -1737,6 +1738,7 @@ fn build_enum_variant_payload(
 
                         #( let mut #slot_vars: ::core::option::Option<#active_tys> = ::core::option::Option::None; )*
 
+                        #[allow(clippy::reversed_empty_ranges)]
                         for _ in 0..#count {
                             let __key_bytes = reader.read_string_bytes()?;
                             let __key_bytes = __key_bytes.as_ref();
