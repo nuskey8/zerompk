@@ -521,11 +521,7 @@ impl<'a> Write for SliceWriter<'a> {
         unsafe {
             let tail_ptr = tail.as_mut_ptr();
             core::ptr::copy_nonoverlapping(nanoseconds.to_be_bytes().as_ptr(), tail_ptr, 4);
-            core::ptr::copy_nonoverlapping(
-                seconds.to_be_bytes().as_ptr(),
-                tail_ptr.add(4),
-                8,
-            );
+            core::ptr::copy_nonoverlapping(seconds.to_be_bytes().as_ptr(), tail_ptr.add(4), 8);
         }
         Ok(())
     }
