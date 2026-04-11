@@ -1505,3 +1505,48 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slice_reader_decrement_depth_at_zero_does_not_underflow() {
+        let data = [0xc0];
+        let mut reader = SliceReader::new(&data);
+        assert_eq!(reader.depth, 0);
+        reader.decrement_depth();
+        assert_eq!(reader.depth, 0);
+    }
+
+    #[test]
+    fn slice_reader_decrement_depth_decrements() {
+        let data = [0xc0];
+        let mut reader = SliceReader::new(&data);
+        reader.increment_depth().unwrap();
+        assert_eq!(reader.depth, 1);
+        reader.decrement_depth();
+        assert_eq!(reader.depth, 0);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn io_reader_decrement_depth_at_zero_does_not_underflow() {
+        let data: &[u8] = &[0xc0];
+        let mut reader = IOReader::new(data);
+        assert_eq!(reader.depth, 0);
+        reader.decrement_depth();
+        assert_eq!(reader.depth, 0);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn io_reader_decrement_depth_decrements() {
+        let data: &[u8] = &[0xc0];
+        let mut reader = IOReader::new(data);
+        reader.increment_depth().unwrap();
+        assert_eq!(reader.depth, 1);
+        reader.decrement_depth();
+        assert_eq!(reader.depth, 0);
+    }
+}
