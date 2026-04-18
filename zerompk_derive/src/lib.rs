@@ -355,12 +355,16 @@ struct FieldConfig {
     key: Option<KeyAttr>,
     ignore: bool,
     as_bytes: Option<bool>,
+    default: bool,
+    default_path: Option<syn::Path>,
 }
 
 fn parse_field_config(field: &Field) -> Result<FieldConfig> {
     let mut key: Option<KeyAttr> = None;
     let mut ignore = false;
     let mut as_bytes: Option<bool> = None;
+    let mut default = false;
+    let mut default_path: Option<syn::Path> = None;
 
     for attr in &field.attrs {
         if !attr.path().is_ident("msgpack") {
@@ -403,11 +407,27 @@ fn parse_field_config(field: &Field) -> Result<FieldConfig> {
                     }
                 });
                 Ok(())
+            } else if meta.path.is_ident("default") {
+                if default {
+                    return Err(meta.error("duplicate `default` attribute"));
+                }
+                default = true;
+                if meta.input.peek(syn::Token![=]) {
+                    let value = meta.value()?;
+                    let lit: Lit = value.parse()?;
+                    match lit {
+                        Lit::Str(s) => {
+                            default_path = Some(s.parse()?);
+                        }
+                        _ => return Err(meta.error("`default = ...` must be a string path")),
+                    }
+                }
+                Ok(())
             } else if meta.path.is_ident("array") || meta.path.is_ident("map") {
                 Err(meta.error("field-level msgpack attribute does not support `array/map`"))
             } else {
                 Err(meta
-                    .error("field-level msgpack attribute supports only `key = ...`, `ignore`, or `as_bytes = true/false`"))
+                    .error("field-level msgpack attribute supports only `key = ...`, `ignore`, `default`, or `as_bytes = true/false`"))
             }
         })?;
     }
@@ -437,6 +457,8 @@ fn parse_field_config(field: &Field) -> Result<FieldConfig> {
         key,
         ignore,
         as_bytes,
+        default,
+        default_path,
     })
 }
 
@@ -881,6 +903,37 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 .collect::<Result<_>>()?;
             let field_index_by_slot = build_named_array_slots(fields, &field_configs)?;
 
+            // In array mode, `#[msgpack(default)]` is only safe at trailing
+            // positions: anything after a defaulted slot shifts on evolution.
+            // Reject mid-struct defaults; user must move the field to the end
+            // or add `#[msgpack(map)]`.
+            {
+                let mut saw_default = false;
+                for slot in field_index_by_slot.iter() {
+                    match slot {
+                        Some(i) => {
+                            let cfg = &field_configs[*i];
+                            if cfg.default {
+                                saw_default = true;
+                            } else if saw_default {
+                                return Err(syn::Error::new(
+                                    fields.named[*i].span(),
+                                    "`#[msgpack(default)]` in array mode must be trailing; move this field to the end or use `#[msgpack(map)]`",
+                                ));
+                            }
+                        }
+                        None => {
+                            if saw_default {
+                                return Err(syn::Error::new(
+                                    fields.named.span(),
+                                    "`#[msgpack(default)]` in array mode must be trailing; use `#[msgpack(map)]`",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
             let array_len = field_index_by_slot.len();
             let is_dense_sequential = field_index_by_slot.len() == names.len()
                 && field_index_by_slot
@@ -934,25 +987,85 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 Ok(())
             };
 
-            let read = if is_dense_sequential {
-                let direct_fields: Vec<_> = names
+            let any_field_has_default = field_configs.iter().any(|c| c.default);
+
+            let read = if !any_field_has_default {
+                // Strict path: bit-identical to upstream 0.4.1.
+                if is_dense_sequential {
+                    let direct_fields: Vec<_> = names
+                        .iter()
+                        .zip(tys.iter())
+                        .zip(field_configs.iter())
+                        .map(|((name, ty), cfg)| {
+                            let read_expr = build_read_expr(ty, Some(cfg));
+                            quote! { #name: #read_expr }
+                        })
+                        .collect();
+
+                    quote! {
+                        reader.check_array_len(#array_len)?;
+                        Ok(Self { #( #direct_fields ),* })
+                    }
+                } else {
+                    quote! {
+                        reader.check_array_len(#array_len)?;
+                        #( #read_slots )*
+                        Ok(Self { #( #init_fields ),* })
+                    }
+                }
+            } else {
+                // Tolerant array path: accepts arrays shorter than the full schema,
+                // defaulting any trailing slots whose fields are marked
+                // `#[msgpack(default)]`. Arrays longer than expected are also
+                // tolerated — trailing extra values are skipped.
+                let tolerant_slot_reads: Vec<_> = field_index_by_slot
                     .iter()
-                    .zip(tys.iter())
-                    .zip(field_configs.iter())
-                    .map(|((name, ty), cfg)| {
-                        let read_expr = build_read_expr(ty, Some(cfg));
-                        quote! { #name: #read_expr }
+                    .enumerate()
+                    .map(|(slot_idx, slot)| match slot {
+                        Some(i) => {
+                            let name = &names[*i];
+                            let ty = &tys[*i];
+                            let cfg = &field_configs[*i];
+                            let read_expr = build_read_expr(ty, Some(cfg));
+                            let default_expr = if cfg.default {
+                                if let Some(path) = &cfg.default_path {
+                                    quote! { #path() }
+                                } else {
+                                    quote! { <#ty as ::core::default::Default>::default() }
+                                }
+                            } else {
+                                quote! {
+                                    return Err(::zerompk::Error::ArrayLengthMismatch {
+                                        expected: #array_len,
+                                        actual: __array_len,
+                                    })
+                                }
+                            };
+                            quote! {
+                                let #name: #ty = if #slot_idx < __array_len {
+                                    #read_expr
+                                } else {
+                                    #default_expr
+                                };
+                            }
+                        }
+                        None => quote! {
+                            if #slot_idx < __array_len {
+                                reader.read_nil()?;
+                            }
+                        },
                     })
                     .collect();
 
                 quote! {
-                    reader.check_array_len(#array_len)?;
-                    Ok(Self { #( #direct_fields ),* })
-                }
-            } else {
-                quote! {
-                    reader.check_array_len(#array_len)?;
-                    #( #read_slots )*
+                    let __array_len = reader.read_array_len()?;
+                    #( #tolerant_slot_reads )*
+                    // Skip any trailing values the writer emitted beyond our schema.
+                    if __array_len > #array_len {
+                        for _ in #array_len..__array_len {
+                            reader.skip_value()?;
+                        }
+                    }
                     Ok(Self { #( #init_fields ),* })
                 }
             };
@@ -1166,30 +1279,91 @@ fn expand_map_struct(data: &DataStruct) -> Result<ImplBody> {
         Ok(())
     };
 
-    let read = quote! {
-        reader.check_map_len(#count)?;
+    let any_field_has_default = field_configs.iter().any(|c| c.default);
 
-        #( let mut #slots: ::core::option::Option<#tys> = ::core::option::Option::None; )*
+    let read = if !any_field_has_default {
+        // Strict path: preserves 0.4.1 fast-fail behavior bit-for-bit.
+        quote! {
+            reader.check_map_len(#count)?;
 
-        #[allow(clippy::reversed_empty_ranges)]
-        for _ in 0..#count {
-            let __key_bytes = reader.read_string_bytes()?;
-            let __key_bytes = __key_bytes.as_ref();
-            let __key_index = (|| -> ::zerompk::Result<usize> {
-                #key_dispatch
-            })()?;
+            #( let mut #slots: ::core::option::Option<#tys> = ::core::option::Option::None; )*
 
-            match __key_index {
-                #( #read_value_arms )*
-                _ => unreachable!(),
+            #[allow(clippy::reversed_empty_ranges)]
+            for _ in 0..#count {
+                let __key_bytes = reader.read_string_bytes()?;
+                let __key_bytes = __key_bytes.as_ref();
+                let __key_index = (|| -> ::zerompk::Result<usize> {
+                    #key_dispatch
+                })()?;
+
+                match __key_index {
+                    #( #read_value_arms )*
+                    _ => unreachable!(),
+                }
             }
+
+            #(
+                let #names = #slots.ok_or_else(|| ::zerompk::Error::KeyNotFound(#key_lits.into()))?;
+            )*
+
+            Ok(Self { #( #init_fields ),* })
         }
+    } else {
+        // Tolerant path: struct opted into evolution via per-field `default`.
+        // Accepts maps of any length, skips unknown keys, fills missing keys
+        // with their declared default.
+        let unknown_arm = quote! { _ => { reader.skip_value()?; } };
 
-        #(
-            let #names = #slots.ok_or_else(|| ::zerompk::Error::KeyNotFound(#key_lits.into()))?;
-        )*
+        let key_dispatch_tolerant = quote! {
+            let __matched_idx: usize = (|| -> ::zerompk::Result<usize> {
+                #key_dispatch
+            })().unwrap_or(usize::MAX);
+        };
 
-        Ok(Self { #( #init_fields ),* })
+        let slot_finalize: Vec<_> = (0..count)
+            .map(|idx| {
+                let name = &names[idx];
+                let slot = &slots[idx];
+                let key_name = &key_lits[idx];
+                let ty = &tys[idx];
+                let cfg = &field_configs[field_indices[idx]];
+                if cfg.default {
+                    let default_expr = if let Some(path) = &cfg.default_path {
+                        quote! { #path() }
+                    } else {
+                        quote! { <#ty as ::core::default::Default>::default() }
+                    };
+                    quote! {
+                        let #name = #slot.unwrap_or_else(|| #default_expr);
+                    }
+                } else {
+                    quote! {
+                        let #name = #slot.ok_or_else(|| ::zerompk::Error::KeyNotFound(#key_name.into()))?;
+                    }
+                }
+            })
+            .collect();
+
+        quote! {
+            let __map_len = reader.read_map_len()?;
+
+            #( let mut #slots: ::core::option::Option<#tys> = ::core::option::Option::None; )*
+
+            for _ in 0..__map_len {
+                let __key_bytes = reader.read_string_bytes()?;
+                let __key_bytes = __key_bytes.as_ref();
+                #key_dispatch_tolerant
+
+                match __matched_idx {
+                    #( #read_value_arms )*
+                    #unknown_arm
+                }
+            }
+
+            #( #slot_finalize )*
+
+            Ok(Self { #( #init_fields ),* })
+        }
     };
 
     Ok(ImplBody { write, read })

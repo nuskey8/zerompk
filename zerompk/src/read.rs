@@ -152,6 +152,11 @@ pub trait Read<'de> {
             Err(Error::MapLengthMismatch { expected, actual })
         }
     }
+
+    /// Consumes exactly one MessagePack value from the input, regardless of
+    /// its type. Used by `#[msgpack(allow_unknown)]` map-mode decoding to
+    /// skip over unknown keys' values without needing to know their type.
+    fn skip_value(&mut self) -> Result<()>;
 }
 
 pub struct SliceReader<'de> {
@@ -900,6 +905,143 @@ impl<'de> Read<'de> for SliceReader<'de> {
             _ => Err(Error::InvalidMarker(byte)),
         }
     }
+
+    fn skip_value(&mut self) -> Result<()> {
+        self.increment_depth()?;
+        let byte = self.peek_byte()?;
+        match byte {
+            POS_FIXINT_START..=POS_FIXINT_END | NEG_FIXINT_START..=NEG_FIXINT_END => {
+                self.pos += 1;
+            }
+            NIL_MARKER | TRUE_MARKER | FALSE_MARKER => {
+                self.pos += 1;
+            }
+            UINT8_MARKER | INT8_MARKER => {
+                self.pos += 1;
+                self.take_slice(1)?;
+            }
+            UINT16_MARKER | INT16_MARKER => {
+                self.pos += 1;
+                self.take_slice(2)?;
+            }
+            UINT32_MARKER | INT32_MARKER | FLOAT32_MARKER => {
+                self.pos += 1;
+                self.take_slice(4)?;
+            }
+            UINT64_MARKER | INT64_MARKER | FLOAT64_MARKER => {
+                self.pos += 1;
+                self.take_slice(8)?;
+            }
+            FIXSTR_START..=FIXSTR_END => {
+                let len = (byte - FIXSTR_START) as usize;
+                self.pos += 1;
+                self.take_slice(len)?;
+            }
+            STR8_MARKER | BIN8_MARKER => {
+                self.pos += 1;
+                let len = self.take_byte()? as usize;
+                self.take_slice(len)?;
+            }
+            STR16_MARKER | BIN16_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<2>()?;
+                let len = u16::from_be_bytes(*bytes) as usize;
+                self.take_slice(len)?;
+            }
+            STR32_MARKER | BIN32_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<4>()?;
+                let len = u32::from_be_bytes(*bytes) as usize;
+                self.take_slice(len)?;
+            }
+            FIXARRAY_START..=FIXARRAY_END => {
+                let len = (byte - FIXARRAY_START) as usize;
+                self.pos += 1;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            ARRAY16_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<2>()?;
+                let len = u16::from_be_bytes(*bytes) as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            ARRAY32_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<4>()?;
+                let len = u32::from_be_bytes(*bytes) as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            FIXMAP_START..=FIXMAP_END => {
+                let len = (byte - FIXMAP_START) as usize;
+                self.pos += 1;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            MAP16_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<2>()?;
+                let len = u16::from_be_bytes(*bytes) as usize;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            MAP32_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<4>()?;
+                let len = u32::from_be_bytes(*bytes) as usize;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            FIXEXT1_MARKER => {
+                self.pos += 1;
+                self.take_slice(2)?;
+            }
+            FIXEXT2_MARKER => {
+                self.pos += 1;
+                self.take_slice(3)?;
+            }
+            FIXEXT4_MARKER => {
+                self.pos += 1;
+                self.take_slice(5)?;
+            }
+            FIXEXT8_MARKER => {
+                self.pos += 1;
+                self.take_slice(9)?;
+            }
+            FIXEXT16_MARKER => {
+                self.pos += 1;
+                self.take_slice(17)?;
+            }
+            EXT8_MARKER => {
+                self.pos += 1;
+                let len = self.take_byte()? as usize;
+                self.take_slice(len + 1)?;
+            }
+            EXT16_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<2>()?;
+                let len = u16::from_be_bytes(*bytes) as usize;
+                self.take_slice(len + 1)?;
+            }
+            EXT32_MARKER => {
+                self.pos += 1;
+                let bytes = self.take_array::<4>()?;
+                let len = u32::from_be_bytes(*bytes) as usize;
+                self.take_slice(len + 1)?;
+            }
+            _ => return Err(Error::InvalidMarker(byte)),
+        }
+        self.decrement_depth();
+        Ok(())
+    }
 }
 
 #[cfg(feature = "std")]
@@ -1501,5 +1643,132 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             _ => Err(Error::InvalidMarker(byte)),
         }
+    }
+
+    fn skip_value(&mut self) -> Result<()> {
+        self.increment_depth()?;
+        let byte = self.read_byte()?;
+        match byte {
+            POS_FIXINT_START..=POS_FIXINT_END | NEG_FIXINT_START..=NEG_FIXINT_END => {}
+            NIL_MARKER | TRUE_MARKER | FALSE_MARKER => {}
+            UINT8_MARKER | INT8_MARKER => {
+                let mut buf = [0u8; 1];
+                self.read_exact(&mut buf)?;
+            }
+            UINT16_MARKER | INT16_MARKER => {
+                let mut buf = [0u8; 2];
+                self.read_exact(&mut buf)?;
+            }
+            UINT32_MARKER | INT32_MARKER | FLOAT32_MARKER => {
+                let mut buf = [0u8; 4];
+                self.read_exact(&mut buf)?;
+            }
+            UINT64_MARKER | INT64_MARKER | FLOAT64_MARKER => {
+                let mut buf = [0u8; 8];
+                self.read_exact(&mut buf)?;
+            }
+            FIXSTR_START..=FIXSTR_END => {
+                let len = (byte - FIXSTR_START) as usize;
+                let _ = self.read_exact_vec(len)?;
+            }
+            STR8_MARKER | BIN8_MARKER => {
+                let mut buf = [0u8; 1];
+                self.read_exact(&mut buf)?;
+                let len = buf[0] as usize;
+                let _ = self.read_exact_vec(len)?;
+            }
+            STR16_MARKER | BIN16_MARKER => {
+                let mut buf = [0u8; 2];
+                self.read_exact(&mut buf)?;
+                let len = u16::from_be_bytes(buf) as usize;
+                let _ = self.read_exact_vec(len)?;
+            }
+            STR32_MARKER | BIN32_MARKER => {
+                let mut buf = [0u8; 4];
+                self.read_exact(&mut buf)?;
+                let len = u32::from_be_bytes(buf) as usize;
+                let _ = self.read_exact_vec(len)?;
+            }
+            FIXARRAY_START..=FIXARRAY_END => {
+                let len = (byte - FIXARRAY_START) as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            ARRAY16_MARKER => {
+                let mut buf = [0u8; 2];
+                self.read_exact(&mut buf)?;
+                let len = u16::from_be_bytes(buf) as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            ARRAY32_MARKER => {
+                let mut buf = [0u8; 4];
+                self.read_exact(&mut buf)?;
+                let len = u32::from_be_bytes(buf) as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+            }
+            FIXMAP_START..=FIXMAP_END => {
+                let len = (byte - FIXMAP_START) as usize;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            MAP16_MARKER => {
+                let mut buf = [0u8; 2];
+                self.read_exact(&mut buf)?;
+                let len = u16::from_be_bytes(buf) as usize;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            MAP32_MARKER => {
+                let mut buf = [0u8; 4];
+                self.read_exact(&mut buf)?;
+                let len = u32::from_be_bytes(buf) as usize;
+                for _ in 0..(len * 2) {
+                    self.skip_value()?;
+                }
+            }
+            FIXEXT1_MARKER => {
+                let _ = self.read_exact_vec(2)?;
+            }
+            FIXEXT2_MARKER => {
+                let _ = self.read_exact_vec(3)?;
+            }
+            FIXEXT4_MARKER => {
+                let _ = self.read_exact_vec(5)?;
+            }
+            FIXEXT8_MARKER => {
+                let _ = self.read_exact_vec(9)?;
+            }
+            FIXEXT16_MARKER => {
+                let _ = self.read_exact_vec(17)?;
+            }
+            EXT8_MARKER => {
+                let mut buf = [0u8; 1];
+                self.read_exact(&mut buf)?;
+                let len = buf[0] as usize;
+                let _ = self.read_exact_vec(len + 1)?;
+            }
+            EXT16_MARKER => {
+                let mut buf = [0u8; 2];
+                self.read_exact(&mut buf)?;
+                let len = u16::from_be_bytes(buf) as usize;
+                let _ = self.read_exact_vec(len + 1)?;
+            }
+            EXT32_MARKER => {
+                let mut buf = [0u8; 4];
+                self.read_exact(&mut buf)?;
+                let len = u32::from_be_bytes(buf) as usize;
+                let _ = self.read_exact_vec(len + 1)?;
+            }
+            _ => return Err(Error::InvalidMarker(byte)),
+        }
+        self.decrement_depth();
+        Ok(())
     }
 }
