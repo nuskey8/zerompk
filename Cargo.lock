@@ -24,6 +24,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
+name = "bytes"
+version = "1.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+
+[[package]]
 name = "cc"
 version = "1.2.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,20 +130,22 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "msgpacker"
-version = "0.6.1"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef233fd37251c02fcd7092289d034b0a8fed4ab808be06ac6b44ae8c0a28ac29"
+checksum = "362516e5c4eaad307666fc4d8927c23f7948f9cd527dab5c0fbd3b51a4a5733a"
 dependencies = [
+ "bytes",
  "msgpacker-derive",
  "serde",
 ]
 
 [[package]]
 name = "msgpacker-derive"
-version = "0.6.1"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "827d16fe923fde7f1f439b64004b963b2c2c24d2fdc3bba8fd7f5af2eb1a9df9"
+checksum = "5aa6c602164791e82913716444fefa7d6bb8902a788ead4d1e20d688cd2642a0"
 dependencies = [
+ "proc-macro2",
  "quote",
  "syn",
 ]
@@ -382,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "zerompk"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "msgpacker",
@@ -395,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "zerompk_derive"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "proc-macro2",
  "quote",
