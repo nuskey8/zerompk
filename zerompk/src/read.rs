@@ -1477,8 +1477,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::SliceReader;
-    use crate::{Error, FromMessagePack};
+    use crate::{Error, FromMessagePack, Read, read::IOReader, read::SliceReader};
 
     #[allow(dead_code)]
     #[derive(Debug, zerompk_derive::FromMessagePack)]
