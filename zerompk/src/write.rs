@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use alloc::vec::Vec;
 
 use crate::{Error, Result, consts::*};
@@ -17,7 +19,7 @@ use crate::{Error, Result, consts::*};
 /// impl ToMessagePack for Point {
 ///     fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
 ///         writer.write_array_len(2)?;
-///         writer.write_i32(self.x)?;   
+///         writer.write_i32(self.x)?;
 ///         writer.write_i32(self.y)?;
 ///         Ok(())
 ///     }
@@ -92,6 +94,7 @@ impl<'a> SliceWriter<'a> {
     #[inline(always)]
     fn take_array<const N: usize>(&mut self) -> Result<&mut [u8; N]> {
         if self.pos + N > self.buffer.len() {
+            cold_path();
             return Err(Error::BufferTooSmall);
         }
         let array: &mut [u8; N] =
@@ -103,6 +106,7 @@ impl<'a> SliceWriter<'a> {
     #[inline(always)]
     fn take_slice(&mut self, len: usize) -> Result<&mut [u8]> {
         if self.pos + len > self.buffer.len() {
+            cold_path();
             return Err(Error::BufferTooSmall);
         }
 

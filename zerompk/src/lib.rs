@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate self as zerompk;
+
 mod consts;
 mod error;
 mod r#impl;
