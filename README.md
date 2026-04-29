@@ -150,6 +150,57 @@ struct Foo<'a> {
 }
 ```
 
+### default
+
+Marks a field as recoverable when its key is missing from the wire payload. On read, a missing key is filled with `Default::default()`, or with the result of a named function if `default = "path"` is supplied. Only supported on `#[msgpack(map)]` structs — array representation has no field names, so missing values cannot be detected safely.
+
+```rust
+fn default_age() -> u32 { 18 }
+
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map)]
+pub struct Person {
+    pub name: String,
+
+    #[msgpack(default)]
+    pub nickname: Option<String>,
+
+    #[msgpack(default = "default_age")]
+    pub age: u32,
+}
+```
+
+`default` only controls missing keys. Unknown keys still cause a decode error unless `allow_unknown_fields` is also set on the struct.
+
+### allow_unknown_fields
+
+Struct-level opt-in that tells the decoder to skip keys it does not recognize instead of erroring. Only meaningful on `#[msgpack(map)]` structs.
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
+pub struct Person {
+    pub name: String,
+    pub age: u32,
+}
+```
+
+`default` and `allow_unknown_fields` are orthogonal. Combine them for full forward/backward compatibility:
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
+pub struct Person {
+    pub name: String,
+
+    #[msgpack(default)]
+    pub age: u32,
+}
+```
+
+> [!NOTE]
+> Both attributes are opt-in. Structs that use neither preserve zerompk's strict-by-default decoding behavior with byte-identical codegen.
+
 ## Design Philosophy
 
 The most popular MessagePack serializer, [rmp](https://github.com/3Hren/msgpack-rust), is highly optimized, but zerompk is designed with an even greater focus on performance.
@@ -552,7 +603,9 @@ Many of these optimizations are inspired by the high-performance MessagePack ser
 
 ## Security
 
-zerompk always requires strict type schemas for serialization/deserialization, making it almost safe against untrusted binaries. Additionally, zerompk implements measures against the following attacks:
+By default, zerompk requires strict type schemas for serialization/deserialization (every declared field must appear; no unknown keys are tolerated), making it almost safe against untrusted binaries. Schema evolution is opt-in per struct via `#[msgpack(default)]` and `#[msgpack(allow_unknown_fields)]`; structs that opt in relax these checks intentionally and should be paired with application-level validation when the input is untrusted.
+
+Additionally, zerompk implements measures against the following attacks:
 
 - Stack overflow caused by excessive object nesting. zerompk rejects objects nested beyond `MAX_DEPTH = 500` and returns an error.
 - Memory consumption due to large size headers. zerompk validates header sizes before memory allocation and returns an error if the buffer is insufficient.
