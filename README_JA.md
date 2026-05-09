@@ -150,6 +150,59 @@ struct Foo<'a> {
 }
 ```
 
+### default
+
+デシリアライズにキーが存在しない場合に、そのフィールドをデフォルト値で置き換えます。欠損したキーは `Default::default()` で埋められるか、`default = "path"` が指定されている場合は名前付き関数の結果で埋められます。
+
+これは`#[msgpack(map)]` でのみサポートされています。(配列にはフィールド名がないため、欠落した値を安全に検出できません)
+
+```rust
+fn default_age() -> u32 { 18 }
+
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map)]
+pub struct Person {
+    pub name: String,
+
+    #[msgpack(default)]
+    pub nickname: Option<String>,
+
+    #[msgpack(default = "default_age")]
+    pub age: u32,
+}
+```
+
+`default` は欠損したキーのみに対応します。`allow_unknown_fields` が設定されていない限り、不明なキーが含まれる場合はエラーとなります。
+
+### allow_unknown_fields
+
+デシリアライズ時に不明なキーがあった場合、エラーにする代わりにスキップするように変更します。これは`#[msgpack(map)]`でのみ有効です。
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
+pub struct Person {
+    pub name: String,
+    pub age: u32,
+}
+```
+
+完全な前方互換性と後方互換性を確保するには、`default`と`allow_unknown_fields`を組み合わせて使用します。
+
+```rust
+#[derive(FromMessagePack, ToMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
+pub struct Person {
+    pub name: String,
+
+    #[msgpack(default)]
+    pub age: u32,
+}
+```
+
+> [!NOTE]
+> これらの属性はオプトインです。デフォルトではzerompkは厳密なスキーマの一致を要求します。
+
 ## 設計哲学
 
 最もメジャーなMessagePackシリアライザである[rmp](https://github.com/3Hren/msgpack-rust)は十分に最適化されていますが、zerompkはそれ以上にパフォーマンスに注力した設計になっています。
