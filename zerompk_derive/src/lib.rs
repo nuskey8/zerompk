@@ -43,12 +43,20 @@ struct TypeConfig {
     repr: Option<Repr>,
     c_enum: bool,
     allow_unknown_fields: bool,
+    c_enum_repr: CEnumRepr,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CEnumRepr {
+    Signed,
+    Unsigned,
 }
 
 fn parse_type_config_from_attrs(attrs: &[syn::Attribute]) -> Result<TypeConfig> {
     let mut repr = None;
     let mut c_enum = false;
     let mut allow_unknown_fields = false;
+    let mut c_enum_repr = CEnumRepr::Unsigned;
 
     for attr in attrs {
         if !attr.path().is_ident("msgpack") {
@@ -91,10 +99,31 @@ fn parse_type_config_from_attrs(attrs: &[syn::Attribute]) -> Result<TypeConfig> 
         })?;
     }
 
+    if c_enum {
+        for attr in attrs {
+            if !attr.path().is_ident("repr") {
+                continue;
+            }
+
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("i8")
+                    || meta.path.is_ident("i16")
+                    || meta.path.is_ident("i32")
+                    || meta.path.is_ident("i64")
+                    || meta.path.is_ident("isize")
+                {
+                    c_enum_repr = CEnumRepr::Signed;
+                }
+                Ok(())
+            })?;
+        }
+    }
+
     Ok(TypeConfig {
         repr,
         c_enum,
         allow_unknown_fields,
+        c_enum_repr,
     })
 }
 
@@ -851,7 +880,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
             }
 
             if type_cfg.c_enum {
-                expand_c_enum(&data)?
+                expand_c_enum(&data, type_cfg.c_enum_repr)?
             } else {
                 expand_enum(&data)?
             }
@@ -1341,7 +1370,7 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
     Ok(ImplBody { write, read })
 }
 
-fn expand_c_enum(data: &DataEnum) -> Result<ImplBody> {
+fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
     let mut write_arms = Vec::new();
     let mut read_arms = Vec::new();
 
@@ -1355,16 +1384,32 @@ fn expand_c_enum(data: &DataEnum) -> Result<ImplBody> {
             ));
         }
 
-        write_arms.push(quote! {
-            Self::#v_ident => {
-                writer.write_u64(Self::#v_ident as u64)?;
-                Ok(())
-            }
-        });
+        match repr {
+            CEnumRepr::Signed => {
+                write_arms.push(quote! {
+                    Self::#v_ident => {
+                        writer.write_i64(Self::#v_ident as i64)?;
+                        Ok(())
+                    }
+                });
 
-        read_arms.push(quote! {
-            __value if __value == (Self::#v_ident as u64) => Ok(Self::#v_ident)
-        });
+                read_arms.push(quote! {
+                    __value if __value == (Self::#v_ident as i64) => Ok(Self::#v_ident)
+                });
+            }
+            CEnumRepr::Unsigned => {
+                write_arms.push(quote! {
+                    Self::#v_ident => {
+                        writer.write_u64(Self::#v_ident as u64)?;
+                        Ok(())
+                    }
+                });
+
+                read_arms.push(quote! {
+                    __value if __value == (Self::#v_ident as u64) => Ok(Self::#v_ident)
+                });
+            }
+        }
     }
 
     let write = quote! {
@@ -1373,8 +1418,13 @@ fn expand_c_enum(data: &DataEnum) -> Result<ImplBody> {
         }
     };
 
+    let read_value = match repr {
+        CEnumRepr::Signed => quote! { reader.read_i64()? },
+        CEnumRepr::Unsigned => quote! { reader.read_u64()? },
+    };
+
     let read = quote! {
-        let __value = reader.read_u64()?;
+        let __value = #read_value;
         match __value {
             #( #read_arms, )*
             _ => Err(::zerompk::Error::InvalidMarker(0)),

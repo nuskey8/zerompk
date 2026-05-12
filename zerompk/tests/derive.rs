@@ -125,6 +125,14 @@ enum BasicLevel {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(c_enum)]
+#[repr(i8)]
+enum ReprI8Enum {
+    MinusOne = -1,
+    Zero = 0,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 struct RecursiveNode {
     next: Option<Box<RecursiveNode>>,
 }
@@ -592,6 +600,16 @@ fn derive_c_enum_with_implicit_discriminant() {
     assert_eq!(data, vec![0x01]);
 
     let decoded: BasicLevel = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_c_enum_with_signed_discriminant() {
+    let value = ReprI8Enum::MinusOne;
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(data, vec![0xff]);
+
+    let decoded: ReprI8Enum = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, value);
 }
 
