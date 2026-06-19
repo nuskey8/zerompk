@@ -1306,8 +1306,8 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
             quote! {
                 _ => {
                     let __key_str = ::core::str::from_utf8(__key_bytes)
-                        .unwrap_or("<non-utf8>")
-                        .to_string();
+                        .unwrap_or("<non-utf8>");
+                    let __key_str = ::core::convert::From::from(__key_str);
                     break '__zerompk_read_map Err(::zerompk::Error::KeyNotFound(__key_str));
                 }
             }
