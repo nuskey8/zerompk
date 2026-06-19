@@ -1588,7 +1588,7 @@ fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
         Repr::Map => quote! {
             reader.check_map_len(1)?;
             #read_tag_and_payload
-        }
+        },
     };
 
     Ok(ImplBody { write, read })
