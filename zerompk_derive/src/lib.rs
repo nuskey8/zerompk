@@ -866,10 +866,10 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
             }
         }
         Data::Enum(data) => {
-            if type_cfg.repr.is_some() {
+            if type_cfg.c_enum && type_cfg.repr.is_some() {
                 return Err(syn::Error::new(
                     ident.span(),
-                    "enum itself is always encoded as [tag, payload], so top-level #[msgpack(array/map)] is not allowed",
+                    "`c_enum` cannot be combined with top-level #[msgpack(array/map)]",
                 ));
             }
             if type_cfg.allow_unknown_fields {
@@ -882,7 +882,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
             if type_cfg.c_enum {
                 expand_c_enum(&data, type_cfg.c_enum_repr)?
             } else {
-                expand_enum(&data)?
+                expand_enum(&data, type_cfg.repr.unwrap_or(Repr::Array))?
             }
         }
         _ => {
@@ -1434,7 +1434,7 @@ fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
     Ok(ImplBody { write, read })
 }
 
-fn expand_enum(data: &DataEnum) -> Result<ImplBody> {
+fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
     let mut seen_str_tags: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut seen_int_tags: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
@@ -1506,11 +1506,22 @@ fn expand_enum(data: &DataEnum) -> Result<ImplBody> {
             }
         });
 
-        write_arms.push(quote! {
-            #write_pat => {
+        let write_envelope = match repr {
+            Repr::Array => quote! {
                 writer.write_array_len(2)?;
                 #tag_write_expr
                 #write_payload
+            },
+            Repr::Map => quote! {
+                writer.write_map_len(1)?;
+                #tag_write_expr
+                #write_payload
+            },
+        };
+
+        write_arms.push(quote! {
+            #write_pat => {
+                #write_envelope
                 Ok(())
             }
         });
@@ -1558,9 +1569,7 @@ fn expand_enum(data: &DataEnum) -> Result<ImplBody> {
         }
     };
 
-    let read = quote! {
-        reader.check_array_len(2)?;
-
+    let read_tag_and_payload = quote! {
         match reader.read_tag()? {
             ::zerompk::Tag::String(__tag) => {
                 #read_string_branch
@@ -1568,6 +1577,17 @@ fn expand_enum(data: &DataEnum) -> Result<ImplBody> {
             ::zerompk::Tag::Int(__i) => {
                 #read_int_branch
             }
+        }
+    };
+
+    let read = match repr {
+        Repr::Array => quote! {
+            reader.check_array_len(2)?;
+            #read_tag_and_payload
+        },
+        Repr::Map => quote! {
+            reader.check_map_len(1)?;
+            #read_tag_and_payload
         }
     };
 
