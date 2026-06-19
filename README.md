@@ -60,6 +60,7 @@ The correspondence between Rust types and MessagePack types in zerompk is as fol
 ## derive
 
 By enabling the `derive` feature flag, you can implement `FromMessagePack`/`ToMessagePack` using the `derive` macro.
+Enable the `default-as-map` feature flag to make unannotated named structs and enums use `map` representation by default. Explicit `#[msgpack(array)]` and `#[msgpack(map)]` attributes always take precedence.
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]
@@ -73,7 +74,7 @@ You can also customize the serialization format using the `#[msgpack]` attribute
 
 ### array/map
 
-The serialization format of structs and enum can be chosen from `array` or `map`. For performance reasons, the default is set to `array`.
+The serialization format of structs and enum can be chosen from `array` or `map`. For performance reasons, the default is set to `array`, unless the `default-as-map` feature is enabled.
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]

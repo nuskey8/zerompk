@@ -60,6 +60,7 @@ zerompkにおけるRustとMessagePackの型の対応は以下の通りです。M
 ## derive
 
 `derive`フィーチャーフラグを有効化することで、`derive`マクロを用いて`FromMessagePack`/`ToMessagePack`を実装できます。
+`default-as-map`フィーチャーフラグを有効化すると、属性を指定していない名前付きstructとenumのデフォルト表現が`map`になります。明示的な`#[msgpack(array)]`/`#[msgpack(map)]`属性は常に優先されます。
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]
@@ -73,7 +74,7 @@ pub struct Person {
 
 ### array/map
 
-structやenumのシリアライズ形式は`array`/`map`から選択できます。パフォーマンス上の理由からデフォルトは`array`に設定されています。
+structやenumのシリアライズ形式は`array`/`map`から選択できます。パフォーマンス上の理由からデフォルトは`array`に設定されていますが、`default-as-map`フィーチャーを有効化した場合は`map`になります。
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]
