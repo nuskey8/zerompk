@@ -108,6 +108,26 @@ enum Event {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(map)]
+enum MapEvent {
+    A,
+    #[msgpack(key = "p")]
+    Point {
+        x: i32,
+        y: i32,
+    },
+    #[msgpack(key = 2)]
+    Tuple(#[msgpack(key = 0)] i32, #[msgpack(key = 2)] i32),
+    #[msgpack(key = "m")]
+    #[msgpack(map)]
+    Mapped {
+        #[msgpack(key = "x1")]
+        x: i32,
+        y: i32,
+    },
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 #[msgpack(c_enum)]
 #[repr(u8)]
 enum HttpStatus {
@@ -526,6 +546,51 @@ fn derive_enum_named_map_variant() {
     );
 
     let decoded: Event = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_map_enum_unit_variant() {
+    let value = MapEvent::A;
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(data, vec![0x81, 0xa1, b'A', 0xc0]); // {"A": nil}
+
+    let decoded: MapEvent = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_map_enum_named_array_variant() {
+    let value = MapEvent::Point { x: 10, y: 20 };
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(data, vec![0x81, 0xa1, b'p', 0x92, 0x0a, 0x14]);
+
+    let decoded: MapEvent = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_map_enum_tuple_variant_with_gap() {
+    let value = MapEvent::Tuple(10, 20);
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(data, vec![0x81, 0x02, 0x93, 0x0a, 0xc0, 0x14]);
+
+    let decoded: MapEvent = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_map_enum_named_map_variant() {
+    let value = MapEvent::Mapped { x: 10, y: 20 };
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    assert_eq!(
+        data,
+        vec![
+            0x81, 0xa1, b'm', 0x82, 0xa2, b'x', b'1', 0x0a, 0xa1, b'y', 0x14
+        ]
+    );
+
+    let decoded: MapEvent = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, value);
 }
 
