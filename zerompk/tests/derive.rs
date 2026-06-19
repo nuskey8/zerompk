@@ -1,9 +1,21 @@
 use zerompk_derive::{FromMessagePack, ToMessagePack};
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct PointArray {
     x: i32,
     y: i32,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+struct DefaultReprPoint {
+    x: i32,
+    y: i32,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+enum DefaultReprEvent {
+    A,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
@@ -14,6 +26,7 @@ struct PointMap {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct PointArrayWithIndex {
     #[msgpack(key = 0)]
     x: i32,
@@ -49,6 +62,7 @@ struct EmptyTupleStruct();
 struct TupleStruct(i32, String);
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct EmptyStruct {}
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
@@ -59,6 +73,7 @@ struct EmptyStructWithMap {}
 struct NewtypeStruct(i32);
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct IgnoreArrayField {
     x: i32,
     #[msgpack(ignore)]
@@ -76,9 +91,11 @@ struct IgnoreMapField {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 enum Event {
     A,
     #[msgpack(key = "p")]
+    #[msgpack(array)]
     Point {
         x: i32,
         y: i32,
@@ -92,6 +109,7 @@ enum Event {
         x: i32,
         y: i32,
     },
+    #[msgpack(array)]
     IgnoredNamed {
         x: i32,
         #[msgpack(ignore)]
@@ -112,6 +130,7 @@ enum Event {
 enum MapEvent {
     A,
     #[msgpack(key = "p")]
+    #[msgpack(array)]
     Point {
         x: i32,
         y: i32,
@@ -153,51 +172,60 @@ enum ReprI8Enum {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct RecursiveNode {
     next: Option<Box<RecursiveNode>>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct BorrowedPayload<'a> {
     text: &'a str,
     data: &'a [u8],
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct BorrowedList<'a> {
     foo: Vec<&'a str>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct CowPayload<'a> {
     data: std::borrow::Cow<'a, [u8]>,
     nums: std::borrow::Cow<'a, [i32]>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct CowPayloadAsArray<'a> {
     #[msgpack(as_bytes = false)]
     data: std::borrow::Cow<'a, [u8]>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct CowPayloadAsBinExplicit<'a> {
     #[msgpack(as_bytes = true)]
     data: std::borrow::Cow<'a, [u8]>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct VecPayloadDefault {
     data: Vec<u8>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct VecPayloadAsArray {
     #[msgpack(as_bytes = false)]
     data: Vec<u8>,
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct VecPayloadAsBinExplicit {
     #[msgpack(as_bytes = true)]
     data: Vec<u8>,
@@ -217,6 +245,32 @@ fn derive_array_default() {
 
     let decoded: PointArray = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, point);
+}
+
+#[test]
+fn derive_default_repr_for_named_struct() {
+    let point = DefaultReprPoint { x: 10, y: 20 };
+    let data = zerompk::to_msgpack_vec(&point).unwrap();
+    #[cfg(not(feature = "default-as-map"))]
+    assert_eq!(data, vec![0x92, 0x0a, 0x14]);
+    #[cfg(feature = "default-as-map")]
+    assert_eq!(data, vec![0x82, 0xa1, b'x', 0x0a, 0xa1, b'y', 0x14]);
+
+    let decoded: DefaultReprPoint = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, point);
+}
+
+#[test]
+fn derive_default_repr_for_enum() {
+    let value = DefaultReprEvent::A;
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    #[cfg(not(feature = "default-as-map"))]
+    assert_eq!(data, vec![0x92, 0xa1, b'A', 0xc0]);
+    #[cfg(feature = "default-as-map")]
+    assert_eq!(data, vec![0x81, 0xa1, b'A', 0xc0]);
+
+    let decoded: DefaultReprEvent = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
 }
 
 #[test]
