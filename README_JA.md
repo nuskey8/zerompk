@@ -54,6 +54,7 @@ zerompkにおけるRustとMessagePackの型の対応は以下の通りです。M
 | struct (default, with `#[msgpack(array)]`)                                                     | `fixarray`, `array 16`, `array 32`                                          |
 | struct (with `#[msgpack(map)]`)                                                                | `fixmap`, `map 16`, `map 32`                                                |
 | enum (default)                                                                                 | `fixarray` (`[tag, value]`)                                                 |
+| enum (with `#[msgpack(map)]`)                                                                  | `fixmap`, `map 16`, `map 32` (`{tag: value}`)                               |
 | enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
 ## derive
@@ -72,7 +73,7 @@ pub struct Person {
 
 ### array/map
 
-structやenumのバリアントのシリアライズ形式は`array`/`map`から選択できます。パフォーマンス上の理由からデフォルトは`array`に設定されています。
+structやenumのシリアライズ形式は`array`/`map`から選択できます。パフォーマンス上の理由からデフォルトは`array`に設定されています。
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]

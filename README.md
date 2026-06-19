@@ -54,6 +54,7 @@ The correspondence between Rust types and MessagePack types in zerompk is as fol
 | struct (default, with `#[msgpack(array)]`)                                                     | `fixarray`, `array 16`, `array 32`                                          |
 | struct (with `#[msgpack(map)]`)                                                                | `fixmap`, `map 16`, `map 32`                                                |
 | enum (default)                                                                                 | `fixarray` (`[tag, value]`)                                                 |
+| enum (with `#[msgpack(map)]`)                                                                  | `fixmap`, `map 16`, `map 32` (`{tag: value}`)                               |
 | enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
 ## derive
@@ -72,7 +73,7 @@ You can also customize the serialization format using the `#[msgpack]` attribute
 
 ### array/map
 
-The serialization format of structs and enum variants can be chosen from `array` or `map`. For performance reasons, the default is set to `array`.
+The serialization format of structs and enum can be chosen from `array` or `map`. For performance reasons, the default is set to `array`.
 
 ```rust
 #[derive(FromMessagePack, ToMessagePack)]
