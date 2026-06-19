@@ -14,6 +14,7 @@ categories = ["parsing", "no-std"]
 default = ["std"]
 std = []
 derive = ["dep:zerompk_derive"]
+default-as-map = ["derive", "zerompk_derive/default-as-map"]
 chrono = ["dep:chrono"]
 
 [dependencies]

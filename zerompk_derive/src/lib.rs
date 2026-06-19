@@ -39,6 +39,12 @@ enum Repr {
     Map,
 }
 
+#[cfg(feature = "default-as-map")]
+const DEFAULT_REPR: Repr = Repr::Map;
+
+#[cfg(not(feature = "default-as-map"))]
+const DEFAULT_REPR: Repr = Repr::Array;
+
 struct TypeConfig {
     repr: Option<Repr>,
     c_enum: bool,
@@ -853,7 +859,10 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
                 ));
             }
 
-            let repr = type_cfg.repr.unwrap_or(Repr::Array);
+            let repr = type_cfg.repr.unwrap_or(match data.fields {
+                Fields::Named(_) => DEFAULT_REPR,
+                Fields::Unnamed(_) | Fields::Unit => Repr::Array,
+            });
             if type_cfg.allow_unknown_fields && repr == Repr::Array {
                 return Err(syn::Error::new(
                     ident.span(),
@@ -882,7 +891,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
             if type_cfg.c_enum {
                 expand_c_enum(&data, type_cfg.c_enum_repr)?
             } else {
-                expand_enum(&data, type_cfg.repr.unwrap_or(Repr::Array))?
+                expand_enum(&data, type_cfg.repr.unwrap_or(DEFAULT_REPR))?
             }
         }
         _ => {
@@ -1768,7 +1777,7 @@ fn build_enum_variant_payload(
             ))
         }
         Fields::Named(fields) => {
-            let repr = cfg.repr.unwrap_or(Repr::Array);
+            let repr = cfg.repr.unwrap_or(DEFAULT_REPR);
 
             let names: Vec<Ident> = fields
                 .named
