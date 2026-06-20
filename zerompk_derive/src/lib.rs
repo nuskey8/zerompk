@@ -139,9 +139,9 @@ fn add_trait_bounds(mut generics: Generics, kind: DeriveKind) -> Generics {
             DeriveKind::To => type_param
                 .bounds
                 .push(parse_quote!(::zerompk::ToMessagePack)),
-            DeriveKind::From => type_param.bounds.push(parse_quote!(
-                for<'__msgpack_de> ::zerompk::FromMessagePack<'__msgpack_de>
-            )),
+            DeriveKind::From => type_param
+                .bounds
+                .push(parse_quote!(::zerompk::FromMessagePack<'__msgpack_de>)),
         }
     }
     generics

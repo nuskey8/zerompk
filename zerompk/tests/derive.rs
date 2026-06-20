@@ -192,6 +192,13 @@ struct BorrowedList<'a> {
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 #[msgpack(array)]
+struct GenericWrapper<T> {
+    value: T,
+    other_field: bool,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
 struct CowPayload<'a> {
     data: std::borrow::Cow<'a, [u8]>,
     nums: std::borrow::Cow<'a, [i32]>,
@@ -245,6 +252,18 @@ fn derive_array_default() {
 
     let decoded: PointArray = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, point);
+}
+
+#[test]
+fn derive_generic_struct() {
+    let value = GenericWrapper {
+        value: "borrowed",
+        other_field: true,
+    };
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+
+    let decoded: GenericWrapper<&str> = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(decoded, value);
 }
 
 #[test]
