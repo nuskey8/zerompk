@@ -184,7 +184,7 @@ impl<'de> SliceReader<'de> {
     #[inline(always)]
     fn peek_byte(&mut self) -> Result<u8> {
         if self.pos < self.data.len() {
-            Ok(self.data[self.pos])
+            unsafe { Ok(*self.data.get_unchecked(self.pos)) }
         } else {
             cold_path();
             Err(Error::BufferTooSmall)
@@ -203,9 +203,14 @@ impl<'de> SliceReader<'de> {
 
     #[inline(always)]
     fn take_byte(&mut self) -> Result<u8> {
-        let byte = self.peek_byte()?;
-        self.pos += 1;
-        Ok(byte)
+        if self.pos < self.data.len() {
+            let byte = unsafe { *self.data.get_unchecked(self.pos) };
+            self.pos += 1;
+            Ok(byte)
+        } else {
+            cold_path();
+            Err(Error::BufferTooSmall)
+        }
     }
 
     #[inline(always)]
@@ -217,9 +222,14 @@ impl<'de> SliceReader<'de> {
 
     #[inline(always)]
     fn take_array<const N: usize>(&mut self) -> Result<&'de [u8; N]> {
-        let slice = self.peek_slice(N)?;
-        self.pos += N;
-        Ok(unsafe { &*(slice.as_ptr() as *const [u8; N]) })
+        if N <= self.data.len() - self.pos {
+            let array = unsafe { &*(self.data.as_ptr().add(self.pos) as *const [u8; N]) };
+            self.pos += N;
+            Ok(array)
+        } else {
+            cold_path();
+            Err(Error::BufferTooSmall)
+        }
     }
 }
 
