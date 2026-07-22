@@ -41,8 +41,7 @@ fn deserialize_large_array_msgpacker(b: &mut test::Bencher) {
     b.iter(|| {
         let data = test::black_box(&msgpack);
         for _ in 0..N {
-            let buf = data.clone();
-            let (_, deserialized): (usize, Vec<Point>) = msgpacker::unpack_array(&buf).unwrap();
+            let (_, deserialized): (usize, Vec<Point>) = msgpacker::unpack_array(data).unwrap();
             test::black_box(deserialized);
         }
     });
