@@ -19,6 +19,9 @@ pub enum Tag<'de> {
 
 /// A trait for reading values from a MessagePack-encoded input.
 pub trait Read<'de> {
+    /// Returns the next marker byte without consuming it.
+    fn peek_marker(&mut self) -> Result<u8>;
+
     /// Increments the current depth of nested structures.
     ///
     /// ### Errors
@@ -221,6 +224,11 @@ impl<'de> SliceReader<'de> {
 }
 
 impl<'de> Read<'de> for SliceReader<'de> {
+    #[inline(always)]
+    fn peek_marker(&mut self) -> Result<u8> {
+        self.peek_byte()
+    }
+
     #[inline(always)]
     fn increment_depth(&mut self) -> Result<()> {
         if self.depth >= MAX_DEPTH {
@@ -1084,6 +1092,13 @@ impl<R: std::io::Read> IOReader<R> {
 
 #[cfg(feature = "std")]
 impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
+    #[inline(always)]
+    fn peek_marker(&mut self) -> Result<u8> {
+        let byte = self.read_byte()?;
+        self.unread_byte(byte);
+        Ok(byte)
+    }
+
     #[inline(always)]
     fn increment_depth(&mut self) -> Result<()> {
         if self.depth >= MAX_DEPTH {

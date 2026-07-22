@@ -161,16 +161,6 @@ fn msgpack_string_size(s: &str) -> usize {
     header + len
 }
 
-fn msgpack_u64_size(v: u64) -> usize {
-    match v {
-        0..=0x7f => 1,
-        0x80..=0xff => 2,
-        0x0100..=0xffff => 3,
-        0x1_0000..=0xffff_ffff => 5,
-        _ => 9,
-    }
-}
-
 fn pack_u64_le_chunk(bytes: &[u8]) -> u64 {
     let mut value = 0u64;
     for (i, b) in bytes.iter().enumerate() {
@@ -1443,18 +1433,52 @@ fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
     Ok(ImplBody { write, read })
 }
 
+fn read_tag_dispatch(
+    str_arms: &[proc_macro2::TokenStream],
+    int_arms: &[proc_macro2::TokenStream],
+) -> proc_macro2::TokenStream {
+    let string_branch = if str_arms.is_empty() {
+        quote! { Err(::zerompk::Error::InvalidMarker(0)) }
+    } else {
+        quote! {
+            if false { unreachable!(); }
+            #( #str_arms )*
+            else { Err(::zerompk::Error::InvalidMarker(0)) }
+        }
+    };
+    let int_branch = if int_arms.is_empty() {
+        quote! { Err(::zerompk::Error::InvalidMarker(0)) }
+    } else {
+        quote! {
+            match __i {
+                #( #int_arms ),*,
+                _ => Err(::zerompk::Error::InvalidMarker(0)),
+            }
+        }
+    };
+
+    quote! {
+        match reader.read_tag()? {
+            ::zerompk::Tag::String(__tag) => { #string_branch }
+            ::zerompk::Tag::Int(__i) => { #int_branch }
+        }
+    }
+}
+
 fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
     let mut seen_str_tags: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut seen_int_tags: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
-    let mut max_arms = Vec::new();
     let mut write_arms = Vec::new();
-    let mut read_str_arms = Vec::new();
-    let mut read_int_arms = Vec::new();
+    let mut unit_str_arms = Vec::new();
+    let mut unit_int_arms = Vec::new();
+    let mut data_str_arms = Vec::new();
+    let mut data_int_arms = Vec::new();
 
     for variant in &data.variants {
         let v_ident = &variant.ident;
         let cfg = parse_variant_config(variant)?;
+        let is_unit = matches!(variant.fields, Fields::Unit);
 
         match &cfg.tag {
             VariantTag::Name(s) => {
@@ -1473,73 +1497,55 @@ fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
             }
         }
 
-        let (max_pat, max_payload_size, write_pat, write_payload, read_ctor) =
+        let (_, _, write_pat, write_payload, read_ctor) =
             build_enum_variant_payload(variant, &cfg)?;
 
-        let (tag_size_expr, tag_write_expr, str_arm, int_arm) = match &cfg.tag {
-            VariantTag::Name(s) => {
-                let tag_size = msgpack_string_size(&s.value());
-                let str_arm = {
-                    let s = s.clone();
-                    quote! {
-                        else if __tag == #s {
-                            #read_ctor
-                        }
-                    }
-                };
-                (
-                    quote! { #tag_size },
-                    quote! { writer.write_string(#s)?; },
-                    Some(str_arm),
-                    None,
-                )
-            }
-            VariantTag::Index(i) => {
-                let tag_size = msgpack_u64_size(*i);
-                let int_arm = {
-                    let i = *i;
-                    quote! { #i => { #read_ctor } }
-                };
-                (
-                    quote! { #tag_size },
-                    quote! { writer.write_u64(#i)?; },
-                    None,
-                    Some(int_arm),
-                )
-            }
+        let tag_write_expr = match &cfg.tag {
+            VariantTag::Name(s) => quote! { writer.write_string(#s)?; },
+            VariantTag::Index(i) => quote! { writer.write_u64(#i)?; },
         };
 
-        max_arms.push(quote! {
-            #max_pat => {
-                1 + #tag_size_expr + #max_payload_size
-            }
-        });
-
-        let write_envelope = match repr {
-            Repr::Array => quote! {
+        let write_body = if is_unit {
+            tag_write_expr
+        } else {
+            match repr {
+                Repr::Array => quote! {
                 writer.write_array_len(2)?;
                 #tag_write_expr
                 #write_payload
-            },
-            Repr::Map => quote! {
+                },
+                Repr::Map => quote! {
                 writer.write_map_len(1)?;
                 #tag_write_expr
                 #write_payload
-            },
+                },
+            }
         };
 
         write_arms.push(quote! {
             #write_pat => {
-                #write_envelope
+                #write_body
                 Ok(())
             }
         });
 
-        if let Some(a) = str_arm {
-            read_str_arms.push(a);
-        }
-        if let Some(a) = int_arm {
-            read_int_arms.push(a);
+        match &cfg.tag {
+            VariantTag::Name(s) => {
+                let arm = quote! { else if __tag == #s { #read_ctor } };
+                if is_unit {
+                    unit_str_arms.push(arm);
+                } else {
+                    data_str_arms.push(arm);
+                }
+            }
+            VariantTag::Index(i) => {
+                let arm = quote! { #i => { #read_ctor } };
+                if is_unit {
+                    unit_int_arms.push(arm);
+                } else {
+                    data_int_arms.push(arm);
+                }
+            }
         }
     }
 
@@ -1549,55 +1555,31 @@ fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
         }
     };
 
-    let read_string_branch = if read_str_arms.is_empty() {
-        quote! {
-            Err(::zerompk::Error::InvalidMarker(0))
-        }
+    let has_unit = !unit_str_arms.is_empty() || !unit_int_arms.is_empty();
+    let has_data = !data_str_arms.is_empty() || !data_int_arms.is_empty();
+    let read = if !has_data {
+        read_tag_dispatch(&unit_str_arms, &unit_int_arms)
     } else {
-        quote! {
-            if false {
-                unreachable!();
+        let consume_envelope = match repr {
+            Repr::Array => quote! { reader.check_array_len(2)?; },
+            Repr::Map => quote! { reader.check_map_len(1)?; },
+        };
+        let data_read = read_tag_dispatch(&data_str_arms, &data_int_arms);
+        if has_unit {
+            let envelope_markers = match repr {
+                Repr::Array => quote! { 0x90u8..=0x9f | 0xdc | 0xdd },
+                Repr::Map => quote! { 0x80u8..=0x8f | 0xde | 0xdf },
+            };
+            let unit_read = read_tag_dispatch(&unit_str_arms, &unit_int_arms);
+            quote! {
+                match reader.peek_marker()? {
+                    #envelope_markers => { #consume_envelope #data_read }
+                    _ => { #unit_read }
+                }
             }
-            #( #read_str_arms )*
-            else {
-                Err(::zerompk::Error::InvalidMarker(0))
-            }
+        } else {
+            quote! { #consume_envelope #data_read }
         }
-    };
-
-    let read_int_branch = if read_int_arms.is_empty() {
-        quote! {
-            Err(::zerompk::Error::InvalidMarker(0))
-        }
-    } else {
-        quote! {
-            match __i {
-                #( #read_int_arms ),*,
-                _ => Err(::zerompk::Error::InvalidMarker(0)),
-            }
-        }
-    };
-
-    let read_tag_and_payload = quote! {
-        match reader.read_tag()? {
-            ::zerompk::Tag::String(__tag) => {
-                #read_string_branch
-            }
-            ::zerompk::Tag::Int(__i) => {
-                #read_int_branch
-            }
-        }
-    };
-
-    let read = match repr {
-        Repr::Array => quote! {
-            reader.check_array_len(2)?;
-            #read_tag_and_payload
-        },
-        Repr::Map => quote! {
-            reader.check_map_len(1)?;
-            #read_tag_and_payload
-        },
     };
 
     Ok(ImplBody { write, read })
@@ -1643,17 +1625,11 @@ fn build_enum_variant_payload(
             }
 
             let max_pat = quote! { Self::#v_ident };
-            let max_payload_size = quote! { 1usize };
+            let max_payload_size = quote! { 0usize };
 
             let write_pat = quote! { Self::#v_ident };
-            let write_payload = quote! {
-                writer.write_nil()?;
-            };
-
-            let read_ctor = quote! {
-                reader.read_nil()?;
-                Ok(Self::#v_ident)
-            };
+            let write_payload = quote! {};
+            let read_ctor = quote! { Ok(Self::#v_ident) };
 
             Ok((
                 max_pat,
@@ -1679,6 +1655,22 @@ fn build_enum_variant_payload(
                 .collect::<Result<_>>()?;
             let bind_vars: Vec<_> = (0..count).map(|i| format_ident!("__f{i}")).collect();
             let tys: Vec<Type> = fields.unnamed.iter().map(|f| f.ty.clone()).collect();
+
+            if count == 1 && !field_configs[0].ignore {
+                let ty = &tys[0];
+                let field_cfg = &field_configs[0];
+                let value = &bind_vars[0];
+                let write_payload = build_write_expr(quote! { #value }, ty, Some(field_cfg));
+                let read_expr = build_read_expr(ty, Some(field_cfg));
+                return Ok((
+                    quote! { Self::#v_ident(#value) },
+                    quote! { #value.max_size() },
+                    quote! { Self::#v_ident(#value) },
+                    write_payload,
+                    quote! { Ok(Self::#v_ident(#read_expr)) },
+                ));
+            }
+
             let slots = build_unnamed_array_slots(fields, &field_configs)?;
             let payload_len = slots.len();
             let is_dense_sequential = slots.len() == count
