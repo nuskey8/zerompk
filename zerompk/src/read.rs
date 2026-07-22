@@ -193,7 +193,7 @@ impl<'de> SliceReader<'de> {
 
     #[inline(always)]
     fn peek_slice(&mut self, len: usize) -> Result<&'de [u8]> {
-        if self.pos + len <= self.data.len() {
+        if len <= self.data.len() - self.pos {
             unsafe { Ok(self.data.get_unchecked(self.pos..(self.pos + len))) }
         } else {
             cold_path();

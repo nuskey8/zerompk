@@ -93,7 +93,7 @@ impl<'a> SliceWriter<'a> {
 
     #[inline(always)]
     fn take_array<const N: usize>(&mut self) -> Result<&mut [u8; N]> {
-        if self.pos + N > self.buffer.len() {
+        if N > self.buffer.len() - self.pos {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
@@ -105,7 +105,7 @@ impl<'a> SliceWriter<'a> {
 
     #[inline(always)]
     fn take_slice(&mut self, len: usize) -> Result<&mut [u8]> {
-        if self.pos + len > self.buffer.len() {
+        if len > self.buffer.len() - self.pos {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
