@@ -8,6 +8,18 @@ use crate::FromMessagePack;
 use crate::Result;
 use crate::consts::*;
 
+#[cold]
+#[inline(never)]
+fn buffer_too_small<T>() -> Result<T> {
+    Err(Error::BufferTooSmall)
+}
+
+#[cold]
+#[inline(never)]
+fn invalid_marker<T>(marker: u8) -> Result<T> {
+    Err(Error::InvalidMarker(marker))
+}
+
 /// The maximum allowed depth of nested structures during deserialization.
 pub const MAX_DEPTH: usize = 500;
 
@@ -187,7 +199,7 @@ impl<'de> SliceReader<'de> {
             unsafe { Ok(*self.data.get_unchecked(self.pos)) }
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 
@@ -197,7 +209,7 @@ impl<'de> SliceReader<'de> {
             unsafe { Ok(self.data.get_unchecked(self.pos..(self.pos + len))) }
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 
@@ -209,7 +221,7 @@ impl<'de> SliceReader<'de> {
             Ok(byte)
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 
@@ -228,7 +240,7 @@ impl<'de> SliceReader<'de> {
             Ok(array)
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 }
@@ -280,7 +292,7 @@ impl<'de> Read<'de> for SliceReader<'de> {
             _ => {
                 cold_path();
                 self.pos -= 1;
-                Err(Error::InvalidMarker(byte))
+                invalid_marker(byte)
             }
         }
     }
@@ -464,7 +476,7 @@ impl<'de> Read<'de> for SliceReader<'de> {
             _ => {
                 cold_path();
                 self.pos -= 1;
-                Err(Error::InvalidMarker(byte))
+                invalid_marker(byte)
             }
         }
     }
