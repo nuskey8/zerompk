@@ -147,6 +147,19 @@ enum MapEvent {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(map)]
+enum SyncedDataType {
+    Header,
+    Page([u8; 16]),
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+enum SerdeSyncedDataType {
+    Header,
+    Page([u8; 16]),
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 #[msgpack(c_enum)]
 #[repr(u8)]
 enum HttpStatus {
@@ -283,10 +296,7 @@ fn derive_default_repr_for_named_struct() {
 fn derive_default_repr_for_enum() {
     let value = DefaultReprEvent::A;
     let data = zerompk::to_msgpack_vec(&value).unwrap();
-    #[cfg(not(feature = "default-as-map"))]
-    assert_eq!(data, vec![0x92, 0xa1, b'A', 0xc0]);
-    #[cfg(feature = "default-as-map")]
-    assert_eq!(data, vec![0x81, 0xa1, b'A', 0xc0]);
+    assert_eq!(data, vec![0xa1, b'A']);
 
     let decoded: DefaultReprEvent = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, value);
@@ -581,7 +591,7 @@ fn derive_map_ignores_field() {
 fn derive_enum_unit_variant() {
     let value = Event::A;
     let data = zerompk::to_msgpack_vec(&value).unwrap();
-    assert_eq!(data, vec![0x92, 0xa1, b'A', 0xc0]); // ["A", nil]
+    assert_eq!(data, vec![0xa1, b'A']);
 
     let decoded: Event = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, value);
@@ -626,10 +636,28 @@ fn derive_enum_named_map_variant() {
 fn derive_map_enum_unit_variant() {
     let value = MapEvent::A;
     let data = zerompk::to_msgpack_vec(&value).unwrap();
-    assert_eq!(data, vec![0x81, 0xa1, b'A', 0xc0]); // {"A": nil}
+    assert_eq!(data, vec![0xa1, b'A']);
 
     let decoded: MapEvent = zerompk::from_msgpack(&data).unwrap();
     assert_eq!(decoded, value);
+}
+
+#[test]
+fn derive_map_enum_matches_serde_externally_tagged_layout() {
+    let header_data = zerompk::to_msgpack_vec(&SyncedDataType::Header).unwrap();
+    assert_eq!(header_data, vec![0xa6, b'H', b'e', b'a', b'd', b'e', b'r']);
+    let serde_header: SerdeSyncedDataType = rmp_serde::from_slice(&header_data).unwrap();
+    assert_eq!(serde_header, SerdeSyncedDataType::Header);
+
+    let page = SyncedDataType::Page([7; 16]);
+    let page_data = zerompk::to_msgpack_vec(&page).unwrap();
+    let serde_page: SerdeSyncedDataType = rmp_serde::from_slice(&page_data).unwrap();
+    assert_eq!(serde_page, SerdeSyncedDataType::Page([7; 16]));
+
+    let decoded: SyncedDataType = zerompk::from_msgpack(&page_data).unwrap();
+    assert_eq!(decoded, page);
+    let io_decoded: SyncedDataType = zerompk::read_msgpack(page_data.as_slice()).unwrap();
+    assert_eq!(io_decoded, page);
 }
 
 #[test]
