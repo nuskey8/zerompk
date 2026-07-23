@@ -142,8 +142,28 @@ pub trait Read<'de> {
     /// Returns `None` if the next value is nil, or `Some(value)` if it is not.
     fn read_option<T: FromMessagePack<'de>>(&mut self) -> Result<Option<T>>;
 
-    /// Reads an array of values from the input, returning a `Vec<T>`.
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>>;
+    /// Reads an array into an existing `Vec`, reusing its allocation.
+    ///
+    /// On error, all partially decoded elements are dropped and `out` is
+    /// left empty.
+    #[inline(always)]
+    fn read_array<T: FromMessagePack<'de>>(&mut self, out: &mut alloc::vec::Vec<T>) -> Result<()>
+    where
+        Self: Sized,
+    {
+        out.clear();
+        let len = self.read_array_len()?;
+        for _ in 0..len {
+            match T::read(self) {
+                Ok(value) => out.push(value),
+                Err(error) => {
+                    out.clear();
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
 
     /// Reads a tag from the input, which can be either an integer or a string.
     fn read_tag(&mut self) -> Result<Tag<'de>>;
@@ -794,32 +814,39 @@ impl<'de> Read<'de> for SliceReader<'de> {
     }
 
     #[inline(always)]
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>>
-    where
-        Self: Sized,
-    {
+    fn read_array<T: FromMessagePack<'de>>(&mut self, out: &mut alloc::vec::Vec<T>) -> Result<()> {
+        out.clear();
         let len = self.read_array_len()?;
 
-        // Protect against OOM
-        // Strict checks are performed using T::read.
-        // This is intended to prevent pre-allocation of memory,
-        // which can be used in attacks that exploit abnormal sizes.
+        // Every MessagePack value consumes at least one byte. Reject an
+        // impossible length before using attacker-controlled data to grow
+        // the output allocation.
         if self.data.len() - self.pos < len {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
 
-        let mut vec = alloc::vec::Vec::with_capacity(len);
-        unsafe {
-            let mut ptr: *mut T = vec.as_mut_ptr();
-            for _ in 0..len {
-                let value = T::read(self)?;
-                ptr.write(value);
-                ptr = ptr.add(1);
-            }
-            vec.set_len(len);
+        if out.capacity() < len {
+            out.reserve(len);
         }
-        Ok(vec)
+        let ptr = out.as_mut_ptr();
+        for initialized in 0..len {
+            let value = match T::read(self) {
+                Ok(value) => value,
+                Err(error) => {
+                    out.clear();
+                    return Err(error);
+                }
+            };
+            // SAFETY: capacity is at least `len`, and each slot is written
+            // once. Updating length also makes unwinding drop every value
+            // that has already been initialized.
+            unsafe {
+                ptr.add(initialized).write(value);
+                out.set_len(initialized + 1);
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -1576,16 +1603,6 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             self.unread_byte(byte);
             Ok(Some(T::read(self)?))
         }
-    }
-
-    #[inline(always)]
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>> {
-        let len = self.read_array_len()?;
-        let mut vec = alloc::vec::Vec::new();
-        for _ in 0..len {
-            vec.push(T::read(self)?);
-        }
-        Ok(vec)
     }
 
     fn read_tag(&mut self) -> Result<Tag<'de>> {

@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 #[cfg(feature = "std")]
 use std::io::{Cursor, ErrorKind};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use zerompk::{Read, SliceReader};
 
 mod common;
 
@@ -331,4 +333,64 @@ fn test_read_msgpack_std_io_unexpected_eof() {
         zerompk::Error::IoError(io_err) => assert_eq!(io_err.kind(), ErrorKind::UnexpectedEof),
         _ => panic!("expected IoError(UnexpectedEof), got: {err:?}"),
     }
+}
+
+#[test]
+fn test_read_array_reuses_capacity() {
+    let mut output = Vec::with_capacity(8);
+    let original_capacity = output.capacity();
+    let mut reader = SliceReader::new(&[0x93, 0x01, 0x02, 0x03]);
+
+    reader.read_array::<i32>(&mut output).unwrap();
+
+    assert_eq!(output, [1, 2, 3]);
+    assert_eq!(output.capacity(), original_capacity);
+}
+
+#[test]
+fn test_read_array_clears_partial_output_on_error() {
+    let mut output = vec![99];
+    let mut reader = SliceReader::new(&[0x93, 0x01, 0xc1, 0x00]);
+
+    assert!(reader.read_array::<i32>(&mut output).is_err());
+    assert!(output.is_empty());
+}
+
+#[test]
+fn test_read_array_rejects_impossible_length_before_reserve() {
+    let mut output = Vec::<i32>::new();
+    let mut reader = SliceReader::new(&[0xdc, 0xff, 0xff]);
+
+    assert!(matches!(
+        reader.read_array(&mut output),
+        Err(zerompk::Error::BufferTooSmall)
+    ));
+    assert_eq!(output.capacity(), 0);
+}
+
+static PARTIAL_ARRAY_DROPS: AtomicUsize = AtomicUsize::new(0);
+
+struct DropTracked;
+
+impl Drop for DropTracked {
+    fn drop(&mut self) {
+        PARTIAL_ARRAY_DROPS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl<'de> zerompk::FromMessagePack<'de> for DropTracked {
+    fn read<R: Read<'de>>(reader: &mut R) -> zerompk::Result<Self> {
+        reader.read_i32()?;
+        Ok(Self)
+    }
+}
+
+#[test]
+fn test_vec_drops_initialized_elements_on_decode_error() {
+    PARTIAL_ARRAY_DROPS.store(0, Ordering::Relaxed);
+
+    let error = zerompk::from_msgpack::<Vec<DropTracked>>(&[0x92, 0x01, 0xc1]);
+
+    assert!(error.is_err());
+    assert_eq!(PARTIAL_ARRAY_DROPS.load(Ordering::Relaxed), 1);
 }

@@ -260,7 +260,9 @@ where
     where
         Self: Sized,
     {
-        Ok(alloc::borrow::Cow::Owned(reader.read_array()?))
+        let mut values = alloc::vec::Vec::new();
+        reader.read_array(&mut values)?;
+        Ok(alloc::borrow::Cow::Owned(values))
     }
 }
 
@@ -359,7 +361,9 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::vec::Vec<T> {
     where
         Self: Sized,
     {
-        reader.read_array()
+        let mut values = alloc::vec::Vec::new();
+        reader.read_array(&mut values)?;
+        Ok(values)
     }
 }
 
