@@ -473,11 +473,13 @@ impl<'de> Read<'de> for SliceReader<'de> {
     #[inline(always)]
     fn read_i32(&mut self) -> Result<i32> {
         let byte = self.take_byte()?;
+        if byte <= POS_FIXINT_END {
+            return Ok(byte as i32);
+        }
+        if byte >= NEG_FIXINT_START {
+            return Ok((byte as i8) as i32);
+        }
         match byte {
-            // Positive FixInt
-            POS_FIXINT_START..=POS_FIXINT_END => Ok(byte as i32),
-            // Negative FixInt
-            NEG_FIXINT_START..=NEG_FIXINT_END => Ok((byte as i8) as i32),
             // int 8
             INT8_MARKER => {
                 let byte = self.take_byte()?;
