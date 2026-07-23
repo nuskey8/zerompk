@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, LinkedList, VecDeque};
 
 #[cfg(feature = "std")]
-use std::io::{Cursor, ErrorKind};
+use std::io::{BufRead as _, BufReader, Cursor, ErrorKind};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use zerompk::{Read, SliceReader};
@@ -340,6 +340,92 @@ fn test_read_msgpack_std_io_unexpected_eof() {
         zerompk::Error::IoError(io_err) => assert_eq!(io_err.kind(), ErrorKind::UnexpectedEof),
         _ => panic!("expected IoError(UnexpectedEof), got: {err:?}"),
     }
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_read_msgpack_bufread() {
+    let data = [0x92, 0x01, 0x02];
+    let mut reader = BufReader::new(data.as_slice());
+
+    let point: Point = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+
+    assert_eq!(point, Point { x: 1, y: 2 });
+    assert!(reader.fill_buf().unwrap().is_empty());
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_read_msgpack_bufread_preserves_following_values() {
+    let data = [0x01, 0xcd, 0x01, 0x00, 0x02];
+    let mut reader = BufReader::new(data.as_slice());
+
+    let first: u8 = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+    let second: u16 = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+    let third: u8 = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+
+    assert_eq!((first, second, third), (1, 256, 2));
+    assert!(reader.fill_buf().unwrap().is_empty());
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_read_msgpack_bufread_across_buffer_boundaries() {
+    let data = [0x92, 0xd2, 0x01, 0x02, 0x03, 0x04, 0xa3, b'f', b'o', b'o'];
+    let mut reader = BufReader::with_capacity(1, Cursor::new(data));
+
+    let value: (i32, String) = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+
+    assert_eq!(value, (0x01020304, "foo".to_owned()));
+    assert!(reader.fill_buf().unwrap().is_empty());
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_read_msgpack_bufread_all_primitive_boundaries() {
+    fn roundtrip<T>(value: &T)
+    where
+        T: zerompk::ToMessagePack + zerompk::FromMessagePackOwned + PartialEq + std::fmt::Debug,
+    {
+        let encoded = zerompk::to_msgpack_vec(value).unwrap();
+        let mut reader = BufReader::with_capacity(1, Cursor::new(encoded));
+        let decoded: T = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+        assert_eq!(&decoded, value);
+    }
+
+    roundtrip(&255u8);
+    roundtrip(&65_535u16);
+    roundtrip(&u32::MAX);
+    roundtrip(&u64::MAX);
+    roundtrip(&i8::MIN);
+    roundtrip(&i16::MIN);
+    roundtrip(&i32::MIN);
+    roundtrip(&i64::MIN);
+    roundtrip(&1.25f32);
+    roundtrip(&-2.5f64);
+    roundtrip(&"buffer boundary".to_owned());
+    roundtrip(&vec![1i32, -33, 32_768]);
+    roundtrip(&BTreeMap::from([("key".to_owned(), 42i32)]));
+}
+
+#[derive(Debug, PartialEq, zerompk_derive::FromMessagePack)]
+#[msgpack(map, allow_unknown_fields)]
+struct BufReadKnownField {
+    value: i32,
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn test_read_msgpack_bufread_skips_unknown_nested_value() {
+    let data = [
+        0x82, 0xa5, b'v', b'a', b'l', b'u', b'e', 0x2a, 0xa7, b'u', b'n', b'k', b'n', b'o', b'w',
+        b'n', 0x92, 0x81, 0xa1, b'x', 0xd2, 0, 0, 1, 0, 0xa3, b'f', b'o', b'o',
+    ];
+    let mut reader = BufReader::with_capacity(1, Cursor::new(data));
+
+    let decoded: BufReadKnownField = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+
+    assert_eq!(decoded, BufReadKnownField { value: 42 });
 }
 
 #[test]
