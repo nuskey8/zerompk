@@ -109,3 +109,16 @@ fn value_rejects_truncated_extension() {
     let encoded = [0xc7, 3, 42, 1, 2];
     assert!(zerompk::from_msgpack::<Value>(&encoded).is_err());
 }
+
+#[test]
+fn value_rejects_truncated_huge_containers_without_large_preallocation() {
+    for encoded in [
+        [0xdd, 0xff, 0xff, 0xff, 0xff],
+        [0xdf, 0xff, 0xff, 0xff, 0xff],
+    ] {
+        assert!(matches!(
+            zerompk::from_msgpack::<Value>(&encoded),
+            Err(zerompk::Error::BufferTooSmall)
+        ));
+    }
+}
