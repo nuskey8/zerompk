@@ -21,6 +21,17 @@ fn serialize_large_array_zerompk(b: &mut test::Bencher) {
 }
 
 #[bench]
+fn serialize_large_array_zerompk_vec(b: &mut test::Bencher) {
+    let points: Vec<Point> = (0..1000).map(|i| Point { x: i, y: i * 2 }).collect();
+    b.iter(|| {
+        for _ in 0..N {
+            let output = zerompk::to_msgpack_vec(test::black_box(&points)).unwrap();
+            test::black_box(output);
+        }
+    });
+}
+
+#[bench]
 fn serialize_large_array_rmp_serde(b: &mut test::Bencher) {
     let points: Vec<Point> = (0..1000).map(|i| Point { x: i, y: i * 2 }).collect();
     let mut buf = vec![0; 16 * 1024];

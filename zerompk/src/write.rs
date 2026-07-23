@@ -4,6 +4,8 @@ use alloc::vec::Vec;
 
 use crate::{Error, Result, consts::*};
 
+const MAX_CONTAINER_PREALLOC: usize = 4 * 1024;
+
 /// A trait for writing MessagePack-encoded data.
 ///
 /// ## Examples
@@ -1178,11 +1180,12 @@ impl Write for VecWriter {
     fn write_array_len(&mut self, len: usize) -> Result<()> {
         match len {
             0..=15 => {
+                self.buffer.reserve(len + 1);
                 self.buffer.push(FIXARRAY_START | (len as u8));
                 Ok(())
             }
             16..=65535 => {
-                self.buffer.reserve(3);
+                self.buffer.reserve(len.min(MAX_CONTAINER_PREALLOC) + 3);
                 unsafe {
                     let ptr = self.buffer.as_mut_ptr().add(self.buffer.len());
                     *ptr = ARRAY16_MARKER;
@@ -1193,7 +1196,7 @@ impl Write for VecWriter {
                 Ok(())
             }
             _ => {
-                self.buffer.reserve(5);
+                self.buffer.reserve(len.min(MAX_CONTAINER_PREALLOC) + 5);
                 unsafe {
                     let ptr = self.buffer.as_mut_ptr().add(self.buffer.len());
                     *ptr = ARRAY32_MARKER;
