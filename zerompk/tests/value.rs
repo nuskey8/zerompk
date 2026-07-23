@@ -28,6 +28,54 @@ fn sample_value() -> Value<'static> {
 }
 
 #[test]
+fn value_debug_is_json_like_and_honors_pretty_formatting() {
+    let value = Value::Map(vec![
+        (
+            Value::String("items".into()),
+            Value::Array(vec![
+                Value::Nil,
+                Value::Boolean(true),
+                Value::String("a\nb".into()),
+            ]),
+        ),
+        (
+            Value::String("binary".into()),
+            Value::Binary(vec![0, 255].into()),
+        ),
+        (
+            Value::String("extension".into()),
+            Value::Extension(-1, vec![1, 2].into()),
+        ),
+    ]);
+
+    assert_eq!(
+        format!("{value:?}"),
+        r#"{"items": [null, true, "a\nb"], "binary": [0, 255], "extension": {"type": -1, "data": [1, 2]}}"#
+    );
+    assert_eq!(
+        format!("{value:#?}"),
+        r#"{
+    "items": [
+        null,
+        true,
+        "a\nb",
+    ],
+    "binary": [
+        0,
+        255,
+    ],
+    "extension": {
+        "type": -1,
+        "data": [
+            1,
+            2,
+        ],
+    },
+}"#
+    );
+}
+
+#[test]
 fn value_containers_use_the_declared_lengths() {
     let encoded = [
         0x82, 0xa1, b'a', 0x93, 0x01, 0x02, 0x03, 0xa1, b'b', 0x81, 0xa1, b'c', 0xc3,
