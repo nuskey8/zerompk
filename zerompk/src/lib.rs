@@ -9,12 +9,14 @@ mod consts;
 mod error;
 mod r#impl;
 mod read;
+mod value;
 mod write;
 
 use alloc::vec::Vec;
 
 pub use error::{Error, Result};
 pub use read::{Read, SliceReader, Tag};
+pub use value::Value;
 pub use write::Write;
 
 extern crate alloc;
