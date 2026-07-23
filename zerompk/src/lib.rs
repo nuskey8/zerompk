@@ -3,6 +3,8 @@
 #[cfg(test)]
 extern crate self as zerompk;
 
+#[cfg(feature = "std")]
+mod bufread;
 mod consts;
 mod error;
 mod r#impl;
@@ -186,4 +188,35 @@ pub fn write_msgpack<T: ToMessagePack, W: std::io::Write>(writer: &mut W, value:
 pub fn read_msgpack<R: std::io::Read, T: FromMessagePackOwned>(reader: R) -> Result<T> {
     let mut io_reader = read::IOReader::new(reader);
     T::read(&mut io_reader)
+}
+
+/// Deserializes a value of type `T` from a buffered I/O stream.
+///
+/// Unlike [`read_msgpack`], this function reads directly from the slice exposed
+/// by [`std::io::BufRead`]. Any bytes read ahead by the buffered reader remain
+/// available through that same reader, so consecutive MessagePack values can
+/// be decoded without losing data.
+///
+/// ## Errors
+///
+/// Deserialization can fail if `T`'s implementation of [`FromMessagePack`]
+/// returns an error, or if the underlying I/O operation fails.
+///
+/// ## Examples
+///
+/// ```
+/// let data = [0x01, 0x02];
+/// let mut reader = std::io::BufReader::new(data.as_slice());
+///
+/// let first: u8 = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+/// let second: u8 = zerompk::read_msgpack_bufread(&mut reader).unwrap();
+///
+/// assert_eq!((first, second), (1, 2));
+/// ```
+#[cfg(feature = "std")]
+pub fn read_msgpack_bufread<R: std::io::BufRead, T: FromMessagePackOwned>(
+    reader: &mut R,
+) -> Result<T> {
+    let mut bufread_reader = bufread::BufReadReader::new(reader);
+    T::read(&mut bufread_reader)
 }
