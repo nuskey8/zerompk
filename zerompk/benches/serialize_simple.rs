@@ -15,7 +15,8 @@ fn serialize_simple_zerompk(b: &mut test::Bencher) {
     let mut buf = vec![0; 12];
     b.iter(|| {
         for _ in 0..N {
-            zerompk::to_msgpack(&point, &mut buf).unwrap();
+            let len = zerompk::to_msgpack(test::black_box(&point), &mut buf).unwrap();
+            test::black_box(&buf[..len]);
         }
     });
 }
@@ -26,9 +27,11 @@ fn serialize_simple_rmp_serde(b: &mut test::Bencher) {
     let mut buf = vec![0; 12];
     b.iter(|| {
         for _ in 0..N {
+            buf.clear();
             point
                 .serialize(&mut rmp_serde::Serializer::new(&mut buf))
                 .unwrap();
+            test::black_box(&buf);
         }
     });
 }
@@ -39,7 +42,9 @@ fn serialize_simple_msgpacker(b: &mut test::Bencher) {
     let mut buf = vec![0; 12];
     b.iter(|| {
         for _ in 0..N {
+            buf.clear();
             point.pack(&mut buf);
+            test::black_box(&buf);
         }
     });
 }
@@ -52,6 +57,7 @@ fn serialize_simple_serde_json(b: &mut test::Bencher) {
         for _ in 0..N {
             buf.clear();
             serde_json::to_writer(&mut buf, &point).unwrap();
+            test::black_box(&buf);
         }
     });
 }

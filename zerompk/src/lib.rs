@@ -12,7 +12,7 @@ mod write;
 use alloc::vec::Vec;
 
 pub use error::{Error, Result};
-pub use read::{Read, Tag};
+pub use read::{Read, SliceReader, Tag};
 pub use write::Write;
 
 extern crate alloc;

@@ -897,6 +897,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
     let tokens = match kind {
         DeriveKind::To => quote! {
             impl #impl_generics ::zerompk::ToMessagePack for #ident #ty_generics #where_clause {
+                #[inline(always)]
                 fn write<W: ::zerompk::Write>(&self, writer: &mut W) -> ::core::result::Result<(), ::zerompk::Error> {
                     #write
                 }
@@ -917,6 +918,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
 
             quote! {
                 impl #from_impl_generics ::zerompk::FromMessagePack<'__msgpack_de> for #ident #ty_generics #from_where_clause {
+                    #[inline(always)]
                     fn read<R: ::zerompk::Read<'__msgpack_de>>(reader: &mut R) -> ::core::result::Result<Self, ::zerompk::Error>
                     where
                         Self: Sized,

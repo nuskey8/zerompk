@@ -8,6 +8,18 @@ use crate::FromMessagePack;
 use crate::Result;
 use crate::consts::*;
 
+#[cold]
+#[inline(never)]
+fn buffer_too_small<T>() -> Result<T> {
+    Err(Error::BufferTooSmall)
+}
+
+#[cold]
+#[inline(never)]
+fn invalid_marker<T>(marker: u8) -> Result<T> {
+    Err(Error::InvalidMarker(marker))
+}
+
 /// The maximum allowed depth of nested structures during deserialization.
 pub const MAX_DEPTH: usize = 500;
 
@@ -130,8 +142,28 @@ pub trait Read<'de> {
     /// Returns `None` if the next value is nil, or `Some(value)` if it is not.
     fn read_option<T: FromMessagePack<'de>>(&mut self) -> Result<Option<T>>;
 
-    /// Reads an array of values from the input, returning a `Vec<T>`.
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>>;
+    /// Reads an array into an existing `Vec`, reusing its allocation.
+    ///
+    /// On error, all partially decoded elements are dropped and `out` is
+    /// left empty.
+    #[inline(always)]
+    fn read_array<T: FromMessagePack<'de>>(&mut self, out: &mut alloc::vec::Vec<T>) -> Result<()>
+    where
+        Self: Sized,
+    {
+        out.clear();
+        let len = self.read_array_len()?;
+        for _ in 0..len {
+            match T::read(self) {
+                Ok(value) => out.push(value),
+                Err(error) => {
+                    out.clear();
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
 
     /// Reads a tag from the input, which can be either an integer or a string.
     fn read_tag(&mut self) -> Result<Tag<'de>>;
@@ -184,28 +216,33 @@ impl<'de> SliceReader<'de> {
     #[inline(always)]
     fn peek_byte(&mut self) -> Result<u8> {
         if self.pos < self.data.len() {
-            Ok(self.data[self.pos])
+            unsafe { Ok(*self.data.get_unchecked(self.pos)) }
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 
     #[inline(always)]
     fn peek_slice(&mut self, len: usize) -> Result<&'de [u8]> {
-        if self.pos + len <= self.data.len() {
+        if len <= self.data.len() - self.pos {
             unsafe { Ok(self.data.get_unchecked(self.pos..(self.pos + len))) }
         } else {
             cold_path();
-            Err(Error::BufferTooSmall)
+            buffer_too_small()
         }
     }
 
     #[inline(always)]
     fn take_byte(&mut self) -> Result<u8> {
-        let byte = self.peek_byte()?;
-        self.pos += 1;
-        Ok(byte)
+        if self.pos < self.data.len() {
+            let byte = unsafe { *self.data.get_unchecked(self.pos) };
+            self.pos += 1;
+            Ok(byte)
+        } else {
+            cold_path();
+            buffer_too_small()
+        }
     }
 
     #[inline(always)]
@@ -217,9 +254,14 @@ impl<'de> SliceReader<'de> {
 
     #[inline(always)]
     fn take_array<const N: usize>(&mut self) -> Result<&'de [u8; N]> {
-        let slice = self.peek_slice(N)?;
-        self.pos += N;
-        Ok(unsafe { &*(slice.as_ptr() as *const [u8; N]) })
+        if N <= self.data.len() - self.pos {
+            let array = unsafe { &*(self.data.as_ptr().add(self.pos) as *const [u8; N]) };
+            self.pos += N;
+            Ok(array)
+        } else {
+            cold_path();
+            buffer_too_small()
+        }
     }
 }
 
@@ -270,7 +312,7 @@ impl<'de> Read<'de> for SliceReader<'de> {
             _ => {
                 cold_path();
                 self.pos -= 1;
-                Err(Error::InvalidMarker(byte))
+                invalid_marker(byte)
             }
         }
     }
@@ -454,7 +496,7 @@ impl<'de> Read<'de> for SliceReader<'de> {
             _ => {
                 cold_path();
                 self.pos -= 1;
-                Err(Error::InvalidMarker(byte))
+                invalid_marker(byte)
             }
         }
     }
@@ -733,6 +775,24 @@ impl<'de> Read<'de> for SliceReader<'de> {
     }
 
     #[inline(always)]
+    fn check_array_len(&mut self, expected: usize) -> Result<()> {
+        if expected <= 15 && self.pos < self.data.len() {
+            let marker = unsafe { *self.data.get_unchecked(self.pos) };
+            if marker == FIXARRAY_START | expected as u8 {
+                self.pos += 1;
+                return Ok(());
+            }
+        }
+        let actual = self.read_array_len()?;
+        if actual == expected {
+            Ok(())
+        } else {
+            cold_path();
+            Err(Error::ArrayLengthMismatch { expected, actual })
+        }
+    }
+
+    #[inline(always)]
     fn read_ext_len(&mut self) -> Result<(i8, usize)> {
         let byte = self.take_byte()?;
         let len = match byte {
@@ -772,32 +832,39 @@ impl<'de> Read<'de> for SliceReader<'de> {
     }
 
     #[inline(always)]
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>>
-    where
-        Self: Sized,
-    {
+    fn read_array<T: FromMessagePack<'de>>(&mut self, out: &mut alloc::vec::Vec<T>) -> Result<()> {
+        out.clear();
         let len = self.read_array_len()?;
 
-        // Protect against OOM
-        // Strict checks are performed using T::read.
-        // This is intended to prevent pre-allocation of memory,
-        // which can be used in attacks that exploit abnormal sizes.
+        // Every MessagePack value consumes at least one byte. Reject an
+        // impossible length before using attacker-controlled data to grow
+        // the output allocation.
         if self.data.len() - self.pos < len {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
 
-        let mut vec = alloc::vec::Vec::with_capacity(len);
-        unsafe {
-            let mut ptr: *mut T = vec.as_mut_ptr();
-            for _ in 0..len {
-                let value = T::read(self)?;
-                ptr.write(value);
-                ptr = ptr.add(1);
-            }
-            vec.set_len(len);
+        if out.capacity() < len {
+            out.reserve(len);
         }
-        Ok(vec)
+        let ptr = out.as_mut_ptr();
+        for initialized in 0..len {
+            let value = match T::read(self) {
+                Ok(value) => value,
+                Err(error) => {
+                    out.clear();
+                    return Err(error);
+                }
+            };
+            // SAFETY: capacity is at least `len`, and each slot is written
+            // once. Updating length also makes unwinding drop every value
+            // that has already been initialized.
+            unsafe {
+                ptr.add(initialized).write(value);
+                out.set_len(initialized + 1);
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -1554,16 +1621,6 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             self.unread_byte(byte);
             Ok(Some(T::read(self)?))
         }
-    }
-
-    #[inline(always)]
-    fn read_array<T: FromMessagePack<'de>>(&mut self) -> Result<alloc::vec::Vec<T>> {
-        let len = self.read_array_len()?;
-        let mut vec = alloc::vec::Vec::new();
-        for _ in 0..len {
-            vec.push(T::read(self)?);
-        }
-        Ok(vec)
     }
 
     fn read_tag(&mut self) -> Result<Tag<'de>> {

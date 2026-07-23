@@ -260,7 +260,9 @@ where
     where
         Self: Sized,
     {
-        Ok(alloc::borrow::Cow::Owned(reader.read_array()?))
+        let mut values = alloc::vec::Vec::new();
+        reader.read_array(&mut values)?;
+        Ok(alloc::borrow::Cow::Owned(values))
     }
 }
 
@@ -283,6 +285,7 @@ impl<T: ToMessagePack + ?Sized> ToMessagePack for &T {
 }
 
 impl<T: ToMessagePack + ?Sized> ToMessagePack for &mut T {
+    #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         T::write(self, writer)
     }
@@ -303,6 +306,7 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for Option<T> {
 }
 
 impl<T: ToMessagePack> ToMessagePack for Option<T> {
+    #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         match self {
             Some(value) => value.write(writer),
@@ -314,6 +318,7 @@ impl<T: ToMessagePack> ToMessagePack for Option<T> {
 impl<'a, T: FromMessagePack<'a>, E: FromMessagePack<'a>> FromMessagePack<'a>
     for core::result::Result<T, E>
 {
+    #[inline(always)]
     fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self>
     where
         Self: Sized,
@@ -329,6 +334,7 @@ impl<'a, T: FromMessagePack<'a>, E: FromMessagePack<'a>> FromMessagePack<'a>
 }
 
 impl<T: ToMessagePack, E: ToMessagePack> ToMessagePack for core::result::Result<T, E> {
+    #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         match self {
             Ok(value) => {
@@ -355,7 +361,9 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::vec::Vec<T> {
     where
         Self: Sized,
     {
-        reader.read_array()
+        let mut values = alloc::vec::Vec::new();
+        reader.read_array(&mut values)?;
+        Ok(values)
     }
 }
 

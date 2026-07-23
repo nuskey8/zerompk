@@ -22,7 +22,8 @@ fn serialize_array_complex_zerompk(b: &mut test::Bencher) {
     let mut buf = vec![0; 256];
     b.iter(|| {
         for _ in 0..N {
-            zerompk::to_msgpack(&nested, &mut buf).unwrap();
+            let len = zerompk::to_msgpack(test::black_box(&nested), &mut buf).unwrap();
+            test::black_box(&buf[..len]);
         }
     });
 }
@@ -38,9 +39,11 @@ fn serialize_array_complex_rmp_serde(b: &mut test::Bencher) {
     let mut buf = vec![0; 256];
     b.iter(|| {
         for _ in 0..N {
+            buf.clear();
             nested
                 .serialize(&mut rmp_serde::Serializer::new(&mut buf))
                 .unwrap();
+            test::black_box(&buf);
         }
     });
 }
@@ -56,7 +59,9 @@ fn serialize_array_complex_msgpacker(b: &mut test::Bencher) {
     let mut buf = vec![0; 256];
     b.iter(|| {
         for _ in 0..N {
+            buf.clear();
             nested.pack(&mut buf);
+            test::black_box(&buf);
         }
     });
 }
@@ -72,7 +77,8 @@ fn serialize_map_complex_zerompk(b: &mut test::Bencher) {
     let mut buf = vec![0; 256];
     b.iter(|| {
         for _ in 0..N {
-            zerompk::to_msgpack(&nested, &mut buf).unwrap();
+            let len = zerompk::to_msgpack(test::black_box(&nested), &mut buf).unwrap();
+            test::black_box(&buf[..len]);
         }
     });
 }
@@ -88,9 +94,11 @@ fn serialize_map_complex_rmp_serde(b: &mut test::Bencher) {
     let mut buf = vec![0; 256];
     b.iter(|| {
         for _ in 0..N {
+            buf.clear();
             nested
                 .serialize(&mut rmp_serde::Serializer::new(&mut buf).with_struct_map())
                 .unwrap();
+            test::black_box(&buf);
         }
     });
 }
@@ -108,6 +116,7 @@ fn serialize_array_complex_serde_json(b: &mut test::Bencher) {
         for _ in 0..N {
             buf.clear();
             serde_json::to_writer(&mut buf, &nested).unwrap();
+            test::black_box(&buf);
         }
     });
 }
@@ -125,6 +134,7 @@ fn serialize_map_complex_serde_json(b: &mut test::Bencher) {
         for _ in 0..N {
             buf.clear();
             serde_json::to_writer(&mut buf, &nested).unwrap();
+            test::black_box(&buf);
         }
     });
 }
