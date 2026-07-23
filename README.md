@@ -57,6 +57,26 @@ The correspondence between Rust types and MessagePack types in zerompk is as fol
 | enum (with `#[msgpack(map)]`)                                                                  | `fixmap`, `map 16`, `map 32` (`{tag: value}`)                               |
 | enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
+## zerompk::Value
+
+`zerompk::Value` represents MessagePack data whose schema is not known at compile time. It supports nil, booleans, signed and unsigned integers, 32-bit and 64-bit floats, strings, binary data, arrays, maps, and extension values.
+
+```rust
+use zerompk::Value;
+
+let data = [
+    0x82, // map with two entries
+    0xa4, b'n', b'a', b'm', b'e',
+    0xa5, b'A', b'l', b'i', b'c', b'e',
+    0xa3, b'a', b'g', b'e',
+    0x12,
+];
+
+let value: Value = zerompk::from_msgpack(&data)?;
+let encoded = zerompk::to_msgpack_vec(&value)?;
+assert_eq!(encoded, data);
+```
+
 ## derive
 
 By enabling the `derive` feature flag, you can implement `FromMessagePack`/`ToMessagePack` using the `derive` macro.
