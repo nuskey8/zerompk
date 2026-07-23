@@ -31,6 +31,13 @@ fn test_point_deserialization_wrong_array_len() {
 }
 
 #[test]
+fn test_point_deserialization_accepts_array16_header() {
+    let data = [0xdc, 0x00, 0x02, 0x0a, 0x14];
+    let point: Point = zerompk::from_msgpack(&data).unwrap();
+    assert_eq!(point, Point { x: 10, y: 20 });
+}
+
+#[test]
 fn test_point_deserialization_wrong_marker() {
     let data = [0x82];
     let err = zerompk::from_msgpack::<Point>(&data).unwrap_err();

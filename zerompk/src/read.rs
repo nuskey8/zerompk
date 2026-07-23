@@ -775,6 +775,24 @@ impl<'de> Read<'de> for SliceReader<'de> {
     }
 
     #[inline(always)]
+    fn check_array_len(&mut self, expected: usize) -> Result<()> {
+        if expected <= 15 && self.pos < self.data.len() {
+            let marker = unsafe { *self.data.get_unchecked(self.pos) };
+            if marker == FIXARRAY_START | expected as u8 {
+                self.pos += 1;
+                return Ok(());
+            }
+        }
+        let actual = self.read_array_len()?;
+        if actual == expected {
+            Ok(())
+        } else {
+            cold_path();
+            Err(Error::ArrayLengthMismatch { expected, actual })
+        }
+    }
+
+    #[inline(always)]
     fn read_ext_len(&mut self) -> Result<(i8, usize)> {
         let byte = self.take_byte()?;
         let len = match byte {
