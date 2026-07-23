@@ -28,6 +28,21 @@ fn sample_value() -> Value<'static> {
 }
 
 #[test]
+fn value_containers_use_the_declared_lengths() {
+    let encoded = [
+        0x82, 0xa1, b'a', 0x93, 0x01, 0x02, 0x03, 0xa1, b'b', 0x81, 0xa1, b'c', 0xc3,
+    ];
+    let decoded: Value = zerompk::from_msgpack(&encoded).unwrap();
+
+    let Value::Map(entries) = decoded else {
+        panic!("expected map");
+    };
+    assert_eq!(entries.len(), 2);
+    assert!(matches!(&entries[0].1, Value::Array(values) if values.len() == 3));
+    assert!(matches!(&entries[1].1, Value::Map(values) if values.len() == 1));
+}
+
+#[test]
 fn value_roundtrip_from_slice() {
     let value = sample_value();
     let encoded = zerompk::to_msgpack_vec(&value).unwrap();
@@ -43,7 +58,7 @@ fn value_roundtrip_from_slice() {
 fn value_reads_from_io_reader() {
     let value = sample_value();
     let encoded = zerompk::to_msgpack_vec(&value).unwrap();
-    let decoded = zerompk::read_msgpack_value(Cursor::new(encoded)).unwrap();
+    let decoded: Value<'_> = zerompk::read_msgpack(Cursor::new(encoded)).unwrap();
     assert_eq!(decoded, value);
 }
 
@@ -52,7 +67,7 @@ fn value_reads_from_bufread_reader() {
     let value = sample_value();
     let encoded = zerompk::to_msgpack_vec(&value).unwrap();
     let mut reader = BufReader::with_capacity(1, Cursor::new(encoded));
-    let decoded = zerompk::read_msgpack_value_bufread(&mut reader).unwrap();
+    let decoded: Value<'_> = zerompk::read_msgpack_bufread(&mut reader).unwrap();
     assert_eq!(decoded, value);
 }
 

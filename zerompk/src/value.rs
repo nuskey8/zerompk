@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::consts::*;
 use crate::{Error, FromMessagePack, Read, Result, ToMessagePack, Write};
 
-/// A schema-less MessagePack value
+/// A schema-less MessagePack value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<'de> {
     Nil,
@@ -125,7 +125,7 @@ impl<'de> FromMessagePack<'de> for Value<'de> {
                         } else {
                             stack.push(Frame::Array {
                                 remaining: len,
-                                values: Vec::new(),
+                                values: Vec::with_capacity(len),
                             });
                         }
                     }
@@ -144,7 +144,7 @@ impl<'de> FromMessagePack<'de> for Value<'de> {
                         } else {
                             stack.push(Frame::Map {
                                 remaining: len,
-                                entries: Vec::new(),
+                                entries: Vec::with_capacity(len),
                                 key: None,
                             });
                         }
