@@ -125,7 +125,7 @@ impl<'de> FromMessagePack<'de> for Value<'de> {
                         } else {
                             stack.push(Frame::Array {
                                 remaining: len,
-                                values: Vec::with_capacity(len),
+                                values: Vec::with_capacity(len.min(32)),
                             });
                         }
                     }
@@ -144,7 +144,7 @@ impl<'de> FromMessagePack<'de> for Value<'de> {
                         } else {
                             stack.push(Frame::Map {
                                 remaining: len,
-                                entries: Vec::with_capacity(len),
+                                entries: Vec::with_capacity(len.min(32)),
                                 key: None,
                             });
                         }
@@ -153,7 +153,6 @@ impl<'de> FromMessagePack<'de> for Value<'de> {
                 }
             }
         })();
-
         for _ in 0..stack.len() {
             reader.decrement_depth();
         }
