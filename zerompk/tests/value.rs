@@ -76,6 +76,41 @@ fn value_debug_is_json_like_and_honors_pretty_formatting() {
 }
 
 #[test]
+fn value_from_preserves_messagepack_types_and_borrows() {
+    let text = String::from("borrowed");
+    let bytes = [1, 2, 3];
+
+    assert_eq!(Value::from(()), Value::Nil);
+    assert_eq!(Value::from(true), Value::Boolean(true));
+    assert_eq!(Value::from(42_u16), Value::Unsigned(42));
+    assert_eq!(Value::from(-42_i16), Value::Signed(-42));
+    assert_eq!(Value::from(1.5_f32), Value::Float32(1.5));
+    assert_eq!(Value::from(2.5_f64), Value::Float64(2.5));
+    assert_eq!(
+        Value::from(text.as_str()),
+        Value::String(Cow::Borrowed("borrowed"))
+    );
+    assert_eq!(
+        Value::from(bytes.as_slice()),
+        Value::Binary(Cow::Borrowed(&bytes))
+    );
+    assert_eq!(
+        Value::from(String::from("owned")),
+        Value::String(Cow::Owned(String::from("owned")))
+    );
+    assert_eq!(
+        Value::from(vec![4_u8, 5]),
+        Value::Binary(Cow::Owned(vec![4, 5]))
+    );
+    assert_eq!(
+        Value::from(vec![Value::from(1_u8), Value::from(false)]),
+        Value::Array(vec![Value::Unsigned(1), Value::Boolean(false)])
+    );
+    assert_eq!(Value::from(None::<bool>), Value::Nil);
+    assert_eq!(Value::from(Some(7_i32)), Value::Signed(7));
+}
+
+#[test]
 fn value_containers_use_the_declared_lengths() {
     let encoded = [
         0x82, 0xa1, b'a', 0x93, 0x01, 0x02, 0x03, 0xa1, b'b', 0x81, 0xa1, b'c', 0xc3,

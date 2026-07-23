@@ -49,6 +49,114 @@ impl fmt::Debug for Value<'_> {
     }
 }
 
+impl From<()> for Value<'_> {
+    fn from((): ()) -> Self {
+        Self::Nil
+    }
+}
+
+impl From<bool> for Value<'_> {
+    fn from(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+}
+
+macro_rules! impl_from_unsigned {
+    ($($type:ty),* $(,)?) => {
+        $(
+            impl From<$type> for Value<'_> {
+                fn from(value: $type) -> Self {
+                    Self::Unsigned(value as u64)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_from_signed {
+    ($($type:ty),* $(,)?) => {
+        $(
+            impl From<$type> for Value<'_> {
+                fn from(value: $type) -> Self {
+                    Self::Signed(value as i64)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_unsigned!(u8, u16, u32, u64, usize);
+impl_from_signed!(i8, i16, i32, i64, isize);
+
+impl From<f32> for Value<'_> {
+    fn from(value: f32) -> Self {
+        Self::Float32(value)
+    }
+}
+
+impl From<f64> for Value<'_> {
+    fn from(value: f64) -> Self {
+        Self::Float64(value)
+    }
+}
+
+impl<'de> From<&'de str> for Value<'de> {
+    fn from(value: &'de str) -> Self {
+        Self::String(Cow::Borrowed(value))
+    }
+}
+
+impl From<alloc::string::String> for Value<'_> {
+    fn from(value: alloc::string::String) -> Self {
+        Self::String(Cow::Owned(value))
+    }
+}
+
+impl<'de> From<Cow<'de, str>> for Value<'de> {
+    fn from(value: Cow<'de, str>) -> Self {
+        Self::String(value)
+    }
+}
+
+impl<'de> From<&'de [u8]> for Value<'de> {
+    fn from(value: &'de [u8]) -> Self {
+        Self::Binary(Cow::Borrowed(value))
+    }
+}
+
+impl From<Vec<u8>> for Value<'_> {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Binary(Cow::Owned(value))
+    }
+}
+
+impl<'de> From<Cow<'de, [u8]>> for Value<'de> {
+    fn from(value: Cow<'de, [u8]>) -> Self {
+        Self::Binary(value)
+    }
+}
+
+impl<'de> From<Vec<Value<'de>>> for Value<'de> {
+    fn from(value: Vec<Value<'de>>) -> Self {
+        Self::Array(value)
+    }
+}
+
+impl<'de> From<Vec<(Value<'de>, Value<'de>)>> for Value<'de> {
+    fn from(value: Vec<(Value<'de>, Value<'de>)>) -> Self {
+        Self::Map(value)
+    }
+}
+
+impl<'de, T> From<Option<T>> for Value<'de>
+where
+    Value<'de>: From<T>,
+{
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Self::Nil, Self::from)
+    }
+}
+
 enum Frame<'de> {
     Array {
         remaining: usize,
