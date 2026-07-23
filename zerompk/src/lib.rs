@@ -65,7 +65,6 @@ pub trait ToMessagePack {
 ///     assert_eq!(point.y, 2);
 /// }
 /// ```
-#[inline(always)]
 pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
     let mut reader = read::SliceReader::new(data);
     T::read(&mut reader)
@@ -92,7 +91,6 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 ///     assert_eq!(msgpack, vec![0x92, 0x01, 0x02]);
 /// }
 /// ```
-#[inline]
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
     let mut writer = write::VecWriter::new();
     value.write(&mut writer)?;
@@ -124,7 +122,6 @@ pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
 ///     assert_eq!(&buf[..bytes_written], &[0x92, 0x01, 0x02]);
 /// }
 /// ```
-#[inline(always)]
 pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
     let mut writer = write::SliceWriter::new(buf);
     value.write(&mut writer)?;
