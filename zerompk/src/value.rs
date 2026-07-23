@@ -1,12 +1,11 @@
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
-use core::fmt;
 
 use crate::consts::*;
 use crate::{Error, FromMessagePack, Read, Result, ToMessagePack, Write};
 
 /// A schema-less MessagePack value.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value<'de> {
     Nil,
     Boolean(bool),
@@ -19,34 +18,6 @@ pub enum Value<'de> {
     Array(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Extension(i8, Cow<'de, [u8]>),
-}
-
-impl fmt::Debug for Value<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Nil => f.write_str("null"),
-            Self::Boolean(value) => value.fmt(f),
-            Self::Unsigned(value) => value.fmt(f),
-            Self::Signed(value) => value.fmt(f),
-            Self::Float32(value) => value.fmt(f),
-            Self::Float64(value) => value.fmt(f),
-            Self::String(value) => value.fmt(f),
-            Self::Binary(value) => value.fmt(f),
-            Self::Array(values) => f.debug_list().entries(values).finish(),
-            Self::Map(entries) => {
-                let mut map = f.debug_map();
-                for (key, value) in entries {
-                    map.entry(key, value);
-                }
-                map.finish()
-            }
-            Self::Extension(type_id, data) => f
-                .debug_map()
-                .entry(&"type", type_id)
-                .entry(&"data", &data.as_ref())
-                .finish(),
-        }
-    }
 }
 
 impl From<()> for Value<'_> {
