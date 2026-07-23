@@ -126,6 +126,9 @@ pub trait Read<'de> {
     /// Reads the extension header and returns the extension type and length of the data.
     fn read_ext_len(&mut self) -> Result<(i8, usize)>;
 
+    /// Reads an extension value, including its type ID and payload.
+    fn read_ext(&mut self) -> Result<(i8, alloc::borrow::Cow<'de, [u8]>)>;
+
     /// Reads a UTF-8 string from the input.
     /// Returns a `Cow<str>` which may borrow from the input data if possible.
     fn read_string(&mut self) -> Result<alloc::borrow::Cow<'de, str>>;
@@ -829,6 +832,12 @@ impl<'de> Read<'de> for SliceReader<'de> {
         };
         let ext_type = self.take_byte()? as i8;
         Ok((ext_type, len))
+    }
+
+    #[inline(always)]
+    fn read_ext(&mut self) -> Result<(i8, alloc::borrow::Cow<'de, [u8]>)> {
+        let (type_id, len) = self.read_ext_len()?;
+        Ok((type_id, alloc::borrow::Cow::Borrowed(self.take_slice(len)?)))
     }
 
     #[inline(always)]
@@ -1610,6 +1619,15 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
         self.read_exact(&mut buf)?;
         let ext_type = buf[0] as i8;
         Ok((ext_type, len))
+    }
+
+    #[inline(always)]
+    fn read_ext(&mut self) -> Result<(i8, alloc::borrow::Cow<'de, [u8]>)> {
+        let (type_id, len) = self.read_ext_len()?;
+        Ok((
+            type_id,
+            alloc::borrow::Cow::Owned(self.read_exact_vec(len)?),
+        ))
     }
 
     #[inline(always)]

@@ -9,12 +9,14 @@ mod consts;
 mod error;
 mod r#impl;
 mod read;
+mod value;
 mod write;
 
 use alloc::vec::Vec;
 
 pub use error::{Error, Result};
 pub use read::{Read, SliceReader, Tag};
+pub use value::Value;
 pub use write::Write;
 
 extern crate alloc;
@@ -140,7 +142,7 @@ pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> 
 ///
 /// ```rust
 /// #[derive(zerompk::ToMessagePack)]
-/// struct Point {  
+/// struct Point {
 ///    x: i32,
 ///    y: i32,
 /// }
@@ -185,7 +187,7 @@ pub fn write_msgpack<T: ToMessagePack, W: std::io::Write>(writer: &mut W, value:
 /// }
 /// ```
 #[cfg(feature = "std")]
-pub fn read_msgpack<R: std::io::Read, T: FromMessagePackOwned>(reader: R) -> Result<T> {
+pub fn read_msgpack<'a, R: std::io::Read, T: FromMessagePack<'a>>(reader: R) -> Result<T> {
     let mut io_reader = read::IOReader::new(reader);
     T::read(&mut io_reader)
 }
@@ -214,7 +216,7 @@ pub fn read_msgpack<R: std::io::Read, T: FromMessagePackOwned>(reader: R) -> Res
 /// assert_eq!((first, second), (1, 2));
 /// ```
 #[cfg(feature = "std")]
-pub fn read_msgpack_bufread<R: std::io::BufRead, T: FromMessagePackOwned>(
+pub fn read_msgpack_bufread<'a, R: std::io::BufRead, T: FromMessagePack<'a>>(
     reader: &mut R,
 ) -> Result<T> {
     let mut bufread_reader = bufread::BufReadReader::new(reader);

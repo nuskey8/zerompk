@@ -1213,11 +1213,13 @@ impl Write for VecWriter {
     fn write_map_len(&mut self, len: usize) -> Result<()> {
         match len {
             0..=15 => {
+                self.buffer.reserve(len * 2 + 1);
                 self.buffer.push(FIXMAP_START | (len as u8));
                 Ok(())
             }
             16..=65535 => {
-                self.buffer.reserve(3);
+                self.buffer
+                    .reserve(len.saturating_mul(2).min(MAX_CONTAINER_PREALLOC) + 3);
                 unsafe {
                     let ptr = self.buffer.as_mut_ptr().add(self.buffer.len());
                     *ptr = MAP16_MARKER;
@@ -1228,7 +1230,8 @@ impl Write for VecWriter {
                 Ok(())
             }
             _ => {
-                self.buffer.reserve(5);
+                self.buffer
+                    .reserve(len.saturating_mul(2).min(MAX_CONTAINER_PREALLOC) + 5);
                 unsafe {
                     let ptr = self.buffer.as_mut_ptr().add(self.buffer.len());
                     *ptr = MAP32_MARKER;

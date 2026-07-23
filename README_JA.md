@@ -57,6 +57,26 @@ zerompkにおけるRustとMessagePackの型の対応は以下の通りです。M
 | enum (with `#[msgpack(map)]`)                                                                  | `fixmap`, `map 16`, `map 32` (`{tag: value}`)                               |
 | enum (with `#[msgpack(c_enum)]`)                                                               | `positive fixint`, `uint 8`, `uint 16`, `uint 32`, `uint 64`                |
 
+## zerompk::Value
+
+`zerompk::Value`は、コンパイル時にスキーマが分からないMessagePackデータを表現します。nil、真偽値、符号付き・符号なし整数、32ビット・64ビット浮動小数点数、文字列、バイナリ、配列、map、拡張型に対応しています。
+
+```rust
+use zerompk::Value;
+
+let data = [
+    0x82, // 2要素のmap
+    0xa4, b'n', b'a', b'm', b'e',
+    0xa5, b'A', b'l', b'i', b'c', b'e',
+    0xa3, b'a', b'g', b'e',
+    0x12,
+];
+
+let value: Value = zerompk::from_msgpack(&data)?;
+let encoded = zerompk::to_msgpack_vec(&value)?;
+assert_eq!(encoded, data);
+```
+
 ## derive
 
 `derive`フィーチャーフラグを有効化することで、`derive`マクロを用いて`FromMessagePack`/`ToMessagePack`を実装できます。

@@ -550,6 +550,12 @@ impl<'de, R: std::io::BufRead> Read<'de> for BufReadReader<'_, R> {
     }
 
     #[inline(always)]
+    fn read_ext(&mut self) -> Result<(i8, Cow<'de, [u8]>)> {
+        let (type_id, len) = self.read_ext_len()?;
+        Ok((type_id, Cow::Owned(self.take_vec(len)?)))
+    }
+
+    #[inline(always)]
     fn read_string(&mut self) -> Result<Cow<'de, str>> {
         let len = self.read_string_len()?;
         let bytes = self.take_vec(len)?;
