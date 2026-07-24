@@ -33,86 +33,236 @@ macro_rules! impl_write_methods {
 
         #[inline(always)]
         fn write_u16(&mut self, value: u16) -> Result<()> {
-            if value <= u8::MAX as u16 {
-                return self.write_u8(value as u8);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                128..=255 => {
+                    let bytes = [UINT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b] = value.to_be_bytes();
+                    let bytes = [UINT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b] = value.to_be_bytes();
-            let bytes = [UINT16_MARKER, a, b];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
         fn write_u32(&mut self, value: u32) -> Result<()> {
-            if value <= u16::MAX as u32 {
-                return self.write_u16(value as u16);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                128..=255 => {
+                    let bytes = [UINT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                256..=65535 => {
+                    let [a, b] = (value as u16).to_be_bytes();
+                    let bytes = [UINT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b, c, d] = value.to_be_bytes();
+                    let bytes = [UINT32_MARKER, a, b, c, d];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b, c, d] = value.to_be_bytes();
-            let bytes = [UINT32_MARKER, a, b, c, d];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
         fn write_u64(&mut self, value: u64) -> Result<()> {
-            if value <= u32::MAX as u64 {
-                return self.write_u32(value as u32);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                128..=255 => {
+                    let bytes = [UINT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                256..=65535 => {
+                    let [a, b] = (value as u16).to_be_bytes();
+                    let bytes = [UINT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                65536..=4294967295 => {
+                    let [a, b, c, d] = (value as u32).to_be_bytes();
+                    let bytes = [UINT32_MARKER, a, b, c, d];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b, c, d, e, f, g, h] = value.to_be_bytes();
+                    let bytes = [UINT64_MARKER, a, b, c, d, e, f, g, h];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b, c, d, e, f, g, h] = value.to_be_bytes();
-            let bytes = [UINT64_MARKER, a, b, c, d, e, f, g, h];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
         fn write_i8(&mut self, value: i8) -> Result<()> {
-            let bytes = [INT8_MARKER, value as u8];
-            let $writer = &mut *self;
-            let $data = if (-32..=127).contains(&value) {
-                &bytes[1..]
-            } else {
-                &bytes
-            };
-            $write
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32..=-1 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let bytes = [INT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+            }
         }
 
         #[inline(always)]
         fn write_i16(&mut self, value: i16) -> Result<()> {
-            if (i8::MIN as i16..=i8::MAX as i16).contains(&value) {
-                return self.write_i8(value as i8);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32..=-1 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -128..=127 => {
+                    let bytes = [INT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b] = value.to_be_bytes();
+                    let bytes = [INT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b] = value.to_be_bytes();
-            let bytes = [INT16_MARKER, a, b];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
         fn write_i32(&mut self, value: i32) -> Result<()> {
-            if (i16::MIN as i32..=i16::MAX as i32).contains(&value) {
-                return self.write_i16(value as i16);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32..=-1 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -128..=127 => {
+                    let bytes = [INT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32768..=32767 => {
+                    let [a, b] = (value as i16).to_be_bytes();
+                    let bytes = [INT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b, c, d] = value.to_be_bytes();
+                    let bytes = [INT32_MARKER, a, b, c, d];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b, c, d] = value.to_be_bytes();
-            let bytes = [INT32_MARKER, a, b, c, d];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
         fn write_i64(&mut self, value: i64) -> Result<()> {
-            if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
-                return self.write_i32(value as i32);
+            match value {
+                0..=127 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32..=-1 => {
+                    let bytes = [value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -128..=127 => {
+                    let bytes = [INT8_MARKER, value as u8];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -32768..=32767 => {
+                    let [a, b] = (value as i16).to_be_bytes();
+                    let bytes = [INT16_MARKER, a, b];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                -2147483648..=2147483647 => {
+                    let [a, b, c, d] = (value as i32).to_be_bytes();
+                    let bytes = [INT32_MARKER, a, b, c, d];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
+                _ => {
+                    let [a, b, c, d, e, f, g, h] = value.to_be_bytes();
+                    let bytes = [INT64_MARKER, a, b, c, d, e, f, g, h];
+                    let $writer = &mut *self;
+                    let $data = bytes.as_slice();
+                    $write
+                }
             }
-            let [a, b, c, d, e, f, g, h] = value.to_be_bytes();
-            let bytes = [INT64_MARKER, a, b, c, d, e, f, g, h];
-            let $writer = &mut *self;
-            let $data = bytes.as_slice();
-            $write
         }
 
         #[inline(always)]
@@ -139,49 +289,56 @@ macro_rules! impl_write_methods {
                 return Err(Error::InvalidTimestamp);
             }
             if nanoseconds == 0 && (0..=u32::MAX as i64).contains(&seconds) {
-                let [a, b, c, d] = (seconds as u32).to_be_bytes();
-                let bytes = [TIMESTAMP32_MARKER, TIMESTAMP_EXT_TYPE as u8, a, b, c, d];
+                let seconds = (seconds as u32).to_be_bytes();
+                let bytes = [
+                    TIMESTAMP32_MARKER,
+                    TIMESTAMP_EXT_TYPE as u8,
+                    seconds[0],
+                    seconds[1],
+                    seconds[2],
+                    seconds[3],
+                ];
                 let $writer = &mut *self;
                 let $data = bytes.as_slice();
                 return $write;
             }
             if (0..=(1i64 << 34) - 1).contains(&seconds) {
                 let value = ((nanoseconds as u64) << 34) | seconds as u64;
-                let [a, b, c, d, e, f, g, h] = value.to_be_bytes();
+                let value = value.to_be_bytes();
                 let bytes = [
                     TIMESTAMP64_MARKER,
                     TIMESTAMP_EXT_TYPE as u8,
-                    a,
-                    b,
-                    c,
-                    d,
-                    e,
-                    f,
-                    g,
-                    h,
+                    value[0],
+                    value[1],
+                    value[2],
+                    value[3],
+                    value[4],
+                    value[5],
+                    value[6],
+                    value[7],
                 ];
                 let $writer = &mut *self;
                 let $data = bytes.as_slice();
                 return $write;
             }
-            let [a, b, c, d] = nanoseconds.to_be_bytes();
-            let [e, f, g, h, i, j, k, l] = seconds.to_be_bytes();
+            let nanos = nanoseconds.to_be_bytes();
+            let seconds = seconds.to_be_bytes();
             let bytes = [
                 TIMESTAMP96_MARKER,
                 12,
                 TIMESTAMP_EXT_TYPE as u8,
-                a,
-                b,
-                c,
-                d,
-                e,
-                f,
-                g,
-                h,
-                i,
-                j,
-                k,
-                l,
+                nanos[0],
+                nanos[1],
+                nanos[2],
+                nanos[3],
+                seconds[0],
+                seconds[1],
+                seconds[2],
+                seconds[3],
+                seconds[4],
+                seconds[5],
+                seconds[6],
+                seconds[7],
             ];
             let $writer = &mut *self;
             let $data = bytes.as_slice();
@@ -249,24 +406,15 @@ macro_rules! impl_write_methods {
             let len = value.len();
             let mut header = [0; 6];
             let header_len = match len {
-                1 => {
-                    header[..2].copy_from_slice(&[FIXEXT1_MARKER, type_id as u8]);
-                    2
-                }
-                2 => {
-                    header[..2].copy_from_slice(&[FIXEXT2_MARKER, type_id as u8]);
-                    2
-                }
-                4 => {
-                    header[..2].copy_from_slice(&[FIXEXT4_MARKER, type_id as u8]);
-                    2
-                }
-                8 => {
-                    header[..2].copy_from_slice(&[FIXEXT8_MARKER, type_id as u8]);
-                    2
-                }
-                16 => {
-                    header[..2].copy_from_slice(&[FIXEXT16_MARKER, type_id as u8]);
+                1 | 2 | 4 | 8 | 16 => {
+                    header[0] = match len {
+                        1 => FIXEXT1_MARKER,
+                        2 => FIXEXT2_MARKER,
+                        4 => FIXEXT4_MARKER,
+                        8 => FIXEXT8_MARKER,
+                        _ => FIXEXT16_MARKER,
+                    };
+                    header[1] = type_id as u8;
                     2
                 }
                 0..=255 => {

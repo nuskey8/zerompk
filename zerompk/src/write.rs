@@ -94,6 +94,17 @@ impl<'a> SliceWriter<'a> {
     }
 
     #[inline(always)]
+    fn take_array<const N: usize>(&mut self) -> Result<&mut [u8; N]> {
+        if N > self.buffer.len() - self.pos {
+            cold_path();
+            return Err(Error::BufferTooSmall);
+        }
+        let array = unsafe { &mut *(self.buffer.as_mut_ptr().add(self.pos) as *mut [u8; N]) };
+        self.pos += N;
+        Ok(array)
+    }
+
+    #[inline(always)]
     fn take_slice(&mut self, len: usize) -> Result<&mut [u8]> {
         if len > self.buffer.len() - self.pos {
             cold_path();
@@ -114,18 +125,74 @@ impl<'a> SliceWriter<'a> {
 impl<'a> Write for SliceWriter<'a> {
     impl_write_methods! {
         write = |writer, data| {
-            writer.take_slice(data.len())?.copy_from_slice(data);
+            match data {
+                [a] => *writer.take_array::<1>()? = [*a],
+                [a, b] => *writer.take_array::<2>()? = [*a, *b],
+                [a, b, c] => *writer.take_array::<3>()? = [*a, *b, *c],
+                [a, b, c, d, e] => *writer.take_array::<5>()? = [*a, *b, *c, *d, *e],
+                [a, b, c, d, e, f] => {
+                    *writer.take_array::<6>()? = [*a, *b, *c, *d, *e, *f]
+                }
+                [a, b, c, d, e, f, g, h, i] => {
+                    *writer.take_array::<9>()? = [*a, *b, *c, *d, *e, *f, *g, *h, *i]
+                }
+                [a, b, c, d, e, f, g, h, i, j] => {
+                    *writer.take_array::<10>()? = [*a, *b, *c, *d, *e, *f, *g, *h, *i, *j]
+                }
+                _ => writer.take_slice(data.len())?.copy_from_slice(data),
+            }
             Ok(())
         },
         write_parts = |writer, header, payload| {
             let output = writer.take_slice(header.len() + payload.len())?;
-            let (output_header, output_payload) = output.split_at_mut(header.len());
-            output_header.copy_from_slice(header);
-            output_payload.copy_from_slice(payload);
+            unsafe {
+                let ptr = output.as_mut_ptr();
+                match header {
+                    [a] => *ptr = *a,
+                    [a, b] => {
+                        *ptr = *a;
+                        *ptr.add(1) = *b;
+                    }
+                    [a, b, c] => {
+                        *ptr = *a;
+                        *ptr.add(1) = *b;
+                        *ptr.add(2) = *c;
+                    }
+                    [a, b, c, d] => {
+                        *ptr = *a;
+                        *ptr.add(1) = *b;
+                        *ptr.add(2) = *c;
+                        *ptr.add(3) = *d;
+                    }
+                    [a, b, c, d, e] => {
+                        *ptr = *a;
+                        *ptr.add(1) = *b;
+                        *ptr.add(2) = *c;
+                        *ptr.add(3) = *d;
+                        *ptr.add(4) = *e;
+                    }
+                    [a, b, c, d, e, f] => {
+                        *ptr = *a;
+                        *ptr.add(1) = *b;
+                        *ptr.add(2) = *c;
+                        *ptr.add(3) = *d;
+                        *ptr.add(4) = *e;
+                        *ptr.add(5) = *f;
+                    }
+                    _ => unreachable!(),
+                }
+                ptr.add(header.len())
+                    .copy_from_nonoverlapping(payload.as_ptr(), payload.len());
+            }
             Ok(())
         },
         write_container = |writer, header, _reserve| {
-            writer.take_slice(header.len())?.copy_from_slice(header);
+            match header {
+                [a] => *writer.take_array::<1>()? = [*a],
+                [a, b, c] => *writer.take_array::<3>()? = [*a, *b, *c],
+                [a, b, c, d, e] => *writer.take_array::<5>()? = [*a, *b, *c, *d, *e],
+                _ => unreachable!(),
+            }
             Ok(())
         },
     }
@@ -148,18 +215,41 @@ impl VecWriter {
 impl Write for VecWriter {
     impl_write_methods! {
         write = |writer, data| {
-            writer.buffer.extend_from_slice(data);
+            if let [byte] = data {
+                writer.buffer.push(*byte);
+            } else {
+                writer.buffer.reserve(data.len());
+                unsafe {
+                    let len = writer.buffer.len();
+                    let output = writer.buffer.as_mut_ptr().add(len);
+                    output.copy_from_nonoverlapping(data.as_ptr(), data.len());
+                    writer.buffer.set_len(len + data.len());
+                }
+            }
             Ok(())
         },
         write_parts = |writer, header, payload| {
-            writer.buffer.reserve(header.len() + payload.len());
-            writer.buffer.extend_from_slice(header);
-            writer.buffer.extend_from_slice(payload);
+            let additional = header.len() + payload.len();
+            writer.buffer.reserve(additional);
+            unsafe {
+                let len = writer.buffer.len();
+                let output = writer.buffer.as_mut_ptr().add(len);
+                output.copy_from_nonoverlapping(header.as_ptr(), header.len());
+                output
+                    .add(header.len())
+                    .copy_from_nonoverlapping(payload.as_ptr(), payload.len());
+                writer.buffer.set_len(len + additional);
+            }
             Ok(())
         },
         write_container = |writer, header, reserve| {
             writer.buffer.reserve(header.len() + reserve);
-            writer.buffer.extend_from_slice(header);
+            unsafe {
+                let len = writer.buffer.len();
+                let output = writer.buffer.as_mut_ptr().add(len);
+                output.copy_from_nonoverlapping(header.as_ptr(), header.len());
+                writer.buffer.set_len(len + header.len());
+            }
             Ok(())
         },
     }
