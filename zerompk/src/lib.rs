@@ -3,6 +3,11 @@
 #[cfg(test)]
 extern crate self as zerompk;
 
+#[macro_use]
+mod read_macro;
+#[macro_use]
+mod write_macro;
+
 #[cfg(feature = "std")]
 mod bufread;
 mod consts;
