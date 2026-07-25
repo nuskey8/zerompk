@@ -266,6 +266,25 @@ impl<'de> SliceReader<'de> {
             buffer_too_small()
         }
     }
+
+    #[inline(always)]
+    fn skip_array_values(&mut self, len: usize) -> Result<()> {
+        self.increment_depth()?;
+        let result = (0..len).try_for_each(|_| self.skip_value());
+        self.decrement_depth();
+        result
+    }
+
+    #[inline(always)]
+    fn skip_map_entries(&mut self, len: usize) -> Result<()> {
+        self.increment_depth()?;
+        let result = (0..len).try_for_each(|_| {
+            self.skip_value()?;
+            self.skip_value()
+        });
+        self.decrement_depth();
+        result
+    }
 }
 
 impl<'de> Read<'de> for SliceReader<'de> {
@@ -365,7 +384,6 @@ impl<'de> Read<'de> for SliceReader<'de> {
     }
 
     fn skip_value(&mut self) -> Result<()> {
-        self.increment_depth()?;
         let byte = self.peek_byte()?;
         match byte {
             POS_FIXINT_START..=POS_FIXINT_END | NEG_FIXINT_START..=NEG_FIXINT_END => {
@@ -375,25 +393,20 @@ impl<'de> Read<'de> for SliceReader<'de> {
                 self.pos += 1;
             }
             UINT8_MARKER | INT8_MARKER => {
-                self.pos += 1;
-                self.take_slice(1)?;
-            }
-            UINT16_MARKER | INT16_MARKER => {
-                self.pos += 1;
                 self.take_slice(2)?;
             }
+            UINT16_MARKER | INT16_MARKER => {
+                self.take_slice(3)?;
+            }
             UINT32_MARKER | INT32_MARKER | FLOAT32_MARKER => {
-                self.pos += 1;
-                self.take_slice(4)?;
+                self.take_slice(5)?;
             }
             UINT64_MARKER | INT64_MARKER | FLOAT64_MARKER => {
-                self.pos += 1;
-                self.take_slice(8)?;
+                self.take_slice(9)?;
             }
             FIXSTR_START..=FIXSTR_END => {
                 let len = (byte - FIXSTR_START) as usize;
-                self.pos += 1;
-                self.take_slice(len)?;
+                self.take_slice(len + 1)?;
             }
             STR8_MARKER | BIN8_MARKER => {
                 self.pos += 1;
@@ -415,68 +428,51 @@ impl<'de> Read<'de> for SliceReader<'de> {
             FIXARRAY_START..=FIXARRAY_END => {
                 let len = (byte - FIXARRAY_START) as usize;
                 self.pos += 1;
-                for _ in 0..len {
-                    self.skip_value()?;
-                }
+                self.skip_array_values(len)?;
             }
             ARRAY16_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<2>()?;
                 let len = u16::from_be_bytes(*bytes) as usize;
-                for _ in 0..len {
-                    self.skip_value()?;
-                }
+                self.skip_array_values(len)?;
             }
             ARRAY32_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<4>()?;
                 let len = u32::from_be_bytes(*bytes) as usize;
-                for _ in 0..len {
-                    self.skip_value()?;
-                }
+                self.skip_array_values(len)?;
             }
             FIXMAP_START..=FIXMAP_END => {
                 let len = (byte - FIXMAP_START) as usize;
                 self.pos += 1;
-                for _ in 0..(len * 2) {
-                    self.skip_value()?;
-                }
+                self.skip_map_entries(len)?;
             }
             MAP16_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<2>()?;
                 let len = u16::from_be_bytes(*bytes) as usize;
-                for _ in 0..(len * 2) {
-                    self.skip_value()?;
-                }
+                self.skip_map_entries(len)?;
             }
             MAP32_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<4>()?;
                 let len = u32::from_be_bytes(*bytes) as usize;
-                for _ in 0..(len * 2) {
-                    self.skip_value()?;
-                }
+                self.skip_map_entries(len)?;
             }
             FIXEXT1_MARKER => {
-                self.pos += 1;
-                self.take_slice(2)?;
-            }
-            FIXEXT2_MARKER => {
-                self.pos += 1;
                 self.take_slice(3)?;
             }
+            FIXEXT2_MARKER => {
+                self.take_slice(4)?;
+            }
             FIXEXT4_MARKER => {
-                self.pos += 1;
-                self.take_slice(5)?;
+                self.take_slice(6)?;
             }
             FIXEXT8_MARKER => {
-                self.pos += 1;
-                self.take_slice(9)?;
+                self.take_slice(10)?;
             }
             FIXEXT16_MARKER => {
-                self.pos += 1;
-                self.take_slice(17)?;
+                self.take_slice(18)?;
             }
             EXT8_MARKER => {
                 self.pos += 1;
@@ -497,7 +493,6 @@ impl<'de> Read<'de> for SliceReader<'de> {
             }
             _ => return Err(Error::InvalidMarker(byte)),
         }
-        self.decrement_depth();
         Ok(())
     }
 }
@@ -813,6 +808,22 @@ mod tests {
         reader.increment_depth().unwrap();
         assert_eq!(reader.depth, 1);
         reader.decrement_depth();
+        assert_eq!(reader.depth, 0);
+    }
+
+    #[test]
+    fn slice_reader_skip_value_restores_depth_after_nested_error() {
+        let data = [
+            0x91, // fixarray with one value
+            0x91, // nested fixarray with one value
+            0xc1, // reserved marker
+        ];
+        let mut reader = SliceReader::new(&data);
+
+        assert!(matches!(
+            reader.skip_value(),
+            Err(Error::InvalidMarker(0xc1))
+        ));
         assert_eq!(reader.depth, 0);
     }
 
