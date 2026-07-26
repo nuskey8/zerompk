@@ -80,7 +80,8 @@ impl<'a, R: std::io::BufRead> BufReadReader<'a, R> {
 
     #[inline(always)]
     fn take_vec(&mut self, len: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(len);
+        const CHUNK_SIZE: usize = 8192;
+        let mut out = Vec::with_capacity(len.min(CHUNK_SIZE));
         while out.len() < len {
             let buffer = self.window()?;
             let count = core::cmp::min(len - out.len(), buffer.len());
@@ -593,19 +594,10 @@ impl<'de, R: std::io::BufRead> Read<'de> for BufReadReader<'_, R> {
     {
         out.clear();
         let len = self.read_array_len()?;
-        if out.capacity() < len {
-            out.reserve(len);
-        }
-        let ptr = out.as_mut_ptr();
-        for initialized in 0..len {
+        out.reserve(len.min(32));
+        for _ in 0..len {
             match T::read(self) {
-                Ok(value) => unsafe {
-                    // SAFETY: capacity is at least `len`; every slot is
-                    // initialized once and exposed to Vec immediately so
-                    // unwinding drops all initialized elements.
-                    ptr.add(initialized).write(value);
-                    out.set_len(initialized + 1);
-                },
+                Ok(value) => out.push(value),
                 Err(error) => {
                     out.clear();
                     return Err(error);
