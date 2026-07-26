@@ -43,12 +43,12 @@ fn deserialize_value_zerompk(b: &mut test::Bencher) {
 }
 
 #[bench]
-fn deserialize_value_rmp_serde(b: &mut test::Bencher) {
+fn deserialize_value_rmpv(b: &mut test::Bencher) {
     let data = test::black_box(data());
     b.bytes = (data.len() * N) as u64;
     b.iter(|| {
         for _ in 0..N {
-            test::black_box(rmp_serde::from_slice::<JsonValue>(&data).unwrap());
+            test::black_box(rmpv::decode::read_value(&mut &data[..]).unwrap());
         }
     });
 }
@@ -78,14 +78,18 @@ fn serialize_value_zerompk(b: &mut test::Bencher) {
 }
 
 #[bench]
-fn serialize_value_rmp_serde(b: &mut test::Bencher) {
-    let value = value();
+fn serialize_value_rmpv(b: &mut test::Bencher) {
     let data = data();
-    assert_eq!(rmp_serde::to_vec(&value).unwrap(), data);
+    let value = rmpv::decode::read_value(&mut &data[..]).unwrap();
+    let mut buf = Vec::with_capacity(data.len());
+    rmpv::encode::write_value(&mut buf, &value).unwrap();
+    assert_eq!(buf, data);
     b.bytes = (data.len() * N) as u64;
     b.iter(|| {
         for _ in 0..N {
-            test::black_box(rmp_serde::to_vec(&value).unwrap());
+            let mut buf = Vec::with_capacity(data.len());
+            rmpv::encode::write_value(&mut buf, &value).unwrap();
+            test::black_box(buf);
         }
     });
 }
