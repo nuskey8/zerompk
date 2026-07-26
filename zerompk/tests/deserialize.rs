@@ -515,3 +515,13 @@ fn test_vec_drops_initialized_elements_on_decode_error() {
     assert!(error.is_err());
     assert_eq!(PARTIAL_ARRAY_DROPS.load(Ordering::Relaxed), 1);
 }
+
+#[test]
+fn test_fixed_array_drops_initialized_elements_on_decode_error() {
+    PARTIAL_ARRAY_DROPS.store(0, Ordering::Relaxed);
+
+    let error = zerompk::from_msgpack::<[DropTracked; 2]>(&[0x92, 0x01, 0xc1]);
+
+    assert!(error.is_err());
+    assert_eq!(PARTIAL_ARRAY_DROPS.load(Ordering::Relaxed), 1);
+}
