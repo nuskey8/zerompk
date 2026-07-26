@@ -429,6 +429,23 @@ fn test_read_msgpack_bufread_skips_unknown_nested_value() {
 }
 
 #[test]
+fn test_read_msgpack_bufread_rejects_truncated_huge_payloads_without_preallocating() {
+    let cases: &[&[u8]] = &[
+        &[0xdb, 0xff, 0xff, 0xff, 0xff],
+        &[0xc6, 0xff, 0xff, 0xff, 0xff],
+        &[0xc9, 0xff, 0xff, 0xff, 0xff, 0x01],
+    ];
+
+    for data in cases {
+        let mut reader = BufReader::with_capacity(1, Cursor::new(*data));
+        assert!(matches!(
+            zerompk::read_msgpack_bufread::<_, zerompk::Value<'_>>(&mut reader),
+            Err(zerompk::Error::BufferTooSmall)
+        ));
+    }
+}
+
+#[test]
 fn test_read_array_reuses_capacity() {
     let mut output = Vec::with_capacity(8);
     let original_capacity = output.capacity();

@@ -80,7 +80,8 @@ impl<'a, R: std::io::BufRead> BufReadReader<'a, R> {
 
     #[inline(always)]
     fn take_vec(&mut self, len: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(len);
+        const CHUNK_SIZE: usize = 8192;
+        let mut out = Vec::with_capacity(len.min(CHUNK_SIZE));
         while out.len() < len {
             let buffer = self.window()?;
             let count = core::cmp::min(len - out.len(), buffer.len());
