@@ -190,14 +190,38 @@ impl<T: ToMessagePack> ToMessagePack for [T] {
 impl<'a, T: FromMessagePack<'a>, const N: usize> FromMessagePack<'a> for [T; N] {
     #[inline(always)]
     fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self> {
+        struct InitializedGuard<T> {
+            ptr: *mut T,
+            initialized: usize,
+        }
+
+        impl<T> Drop for InitializedGuard<T> {
+            fn drop(&mut self) {
+                // SAFETY: the first `initialized` elements were written
+                // exactly once, and the backing array still exists.
+                unsafe {
+                    core::ptr::drop_in_place(core::ptr::slice_from_raw_parts_mut(
+                        self.ptr,
+                        self.initialized,
+                    ));
+                }
+            }
+        }
+
         reader.check_array_len(N)?;
         let mut arr: core::mem::MaybeUninit<[T; N]> = core::mem::MaybeUninit::uninit();
         let ptr = arr.as_mut_ptr() as *mut T;
+        let mut guard = InitializedGuard {
+            ptr,
+            initialized: 0,
+        };
         for i in 0..N {
             unsafe {
                 ptr.add(i).write(T::read(reader)?);
             }
+            guard.initialized += 1;
         }
+        core::mem::forget(guard);
         Ok(unsafe { arr.assume_init() })
     }
 }
