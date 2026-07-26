@@ -578,7 +578,7 @@ Due to constraints in the MessagePack format, zero-copy deserialization is limit
 zerompk improves performance through various optimizations:
 
 - Aggressive inlining to reduce function calls
-- Elimination of unnecessary boundary checks using `unsafe` code
+- Elimination of unnecessary boundary checks
 - Minimization of intermediate layers with `zerompk::{Read, Write}`
 - Automaton-based string search for faster deserialization of map formats
 
@@ -593,35 +593,35 @@ Many of these optimizations are inspired by the high-performance MessagePack ser
 
 | Crate               | Serialize | Deserialize |
 | ------------------- | --------: | ----------: |
-| `serde_json` (JSON) |  98.33 μs |   329.12 μs |
-| `msgpacker`         |  25.41 μs |   134.37 μs |
-| `rmp_serde`         |  56.22 μs |    97.00 μs |
-| `zerompk`           |  12.38 μs |    72.27 μs |
+| `serde_json` (JSON) | 102.11 μs |   271.82 μs |
+| `msgpacker`         |  24.40 μs |    95.24 μs |
+| `rmp_serde`         |  54.38 μs |    76.95 μs |
+| `zerompk`           |  10.71 μs |    44.91 μs |
 
 ### Serialize/Deserialize Struct (with 4 fields, map format) 1000 times
 
 | Crate               | Serialize | Deserialize |
 | ------------------- | --------: | ----------: |
-| `serde_json` (JSON) |  98.33 μs |   329.12 μs |
-| `rmp_serde`         |  92.63 μs |    98.31 μs |
-| `zerompk`           |  18.76 μs |    71.19 μs |
+| `serde_json` (JSON) | 101.66 μs |   271.21 μs |
+| `rmp_serde`         |  65.14 μs |    76.64 μs |
+| `zerompk`           |  11.91 μs |    55.98 μs |
 | `msgpacker`         |       N/A |         N/A |
 
 ### Serialize/Deserialize Array (struct with 2 fields, 1000 elements) 1000 times
 
 | Crate               |    Serialize |  Deserialize |
 | ------------------- | -----------: | -----------: |
-| `serde_json` (JSON) | 22,369.22 μs | 37,034.55 μs |
-| `rmp_serde`         |  9,803.24 μs | 10,839.79 μs |
-| `msgpacker`         | 10,981.52 μs |  4,608.72 μs |
-| `zerompk`           |  6,310.66 μs |  3,571.90 μs |
+| `serde_json` (JSON) | 22,233.60 μs | 37,346.83 μs |
+| `rmp_serde`         |  8,995.84 μs | 10,827.44 μs |
+| `msgpacker`         | 12,349.03 μs |  4,739.15 μs |
+| `zerompk`           |  2,058.51 μs |  2,307.65 μs |
 
 ### Serialize/Deserialize Struct (with 2 fields, no-copy) 1000 times
 
 | Crate       | Serialize | Deserialize |
 | ----------- | --------: | ----------: |
-| `rmp_serde` |  15.47 μs |    16.82 μs |
-| `zerompk`   |   8.57 μs |    10.33 μs |
+| `rmp_serde` |  13.45 μs |    16.85 μs |
+| `zerompk`   |   7.81 μs |     8.93 μs |
 
 ## Security
 
