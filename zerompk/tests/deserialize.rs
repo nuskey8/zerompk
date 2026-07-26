@@ -446,6 +446,17 @@ fn test_read_msgpack_bufread_rejects_truncated_huge_payloads_without_preallocati
 }
 
 #[test]
+fn test_read_msgpack_bufread_rejects_truncated_huge_array_without_preallocating() {
+    let data = [0xdd, 0xff, 0xff, 0xff, 0xff];
+    let mut reader = BufReader::with_capacity(1, Cursor::new(data.as_slice()));
+
+    assert!(matches!(
+        zerompk::read_msgpack_bufread::<_, Vec<u64>>(&mut reader),
+        Err(zerompk::Error::BufferTooSmall)
+    ));
+}
+
+#[test]
 fn test_read_array_reuses_capacity() {
     let mut output = Vec::with_capacity(8);
     let original_capacity = output.capacity();
