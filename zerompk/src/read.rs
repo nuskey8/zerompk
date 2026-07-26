@@ -477,19 +477,19 @@ impl<'de> Read<'de> for SliceReader<'de> {
             EXT8_MARKER => {
                 self.pos += 1;
                 let len = self.take_byte()? as usize;
-                self.take_slice(len + 1)?;
+                self.take_slice(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             EXT16_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<2>()?;
                 let len = u16::from_be_bytes(*bytes) as usize;
-                self.take_slice(len + 1)?;
+                self.take_slice(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             EXT32_MARKER => {
                 self.pos += 1;
                 let bytes = self.take_array::<4>()?;
                 let len = u32::from_be_bytes(*bytes) as usize;
-                self.take_slice(len + 1)?;
+                self.take_slice(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             _ => return Err(Error::InvalidMarker(byte)),
         }
@@ -704,7 +704,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
             }
             FIXMAP_START..=FIXMAP_END => {
                 let len = (byte - FIXMAP_START) as usize;
-                for _ in 0..(len * 2) {
+                for _ in 0..len.checked_mul(2).ok_or(Error::BufferTooSmall)? {
                     self.skip_value()?;
                 }
             }
@@ -712,7 +712,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 let mut buf = [0u8; 2];
                 self.read_exact(&mut buf)?;
                 let len = u16::from_be_bytes(buf) as usize;
-                for _ in 0..(len * 2) {
+                for _ in 0..len.checked_mul(2).ok_or(Error::BufferTooSmall)? {
                     self.skip_value()?;
                 }
             }
@@ -720,7 +720,7 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 let mut buf = [0u8; 4];
                 self.read_exact(&mut buf)?;
                 let len = u32::from_be_bytes(buf) as usize;
-                for _ in 0..(len * 2) {
+                for _ in 0..len.checked_mul(2).ok_or(Error::BufferTooSmall)? {
                     self.skip_value()?;
                 }
             }
@@ -743,19 +743,19 @@ impl<'de, R: std::io::Read> Read<'de> for IOReader<R> {
                 let mut buf = [0u8; 1];
                 self.read_exact(&mut buf)?;
                 let len = buf[0] as usize;
-                let _ = self.read_exact_vec(len + 1)?;
+                let _ = self.read_exact_vec(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             EXT16_MARKER => {
                 let mut buf = [0u8; 2];
                 self.read_exact(&mut buf)?;
                 let len = u16::from_be_bytes(buf) as usize;
-                let _ = self.read_exact_vec(len + 1)?;
+                let _ = self.read_exact_vec(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             EXT32_MARKER => {
                 let mut buf = [0u8; 4];
                 self.read_exact(&mut buf)?;
                 let len = u32::from_be_bytes(buf) as usize;
-                let _ = self.read_exact_vec(len + 1)?;
+                let _ = self.read_exact_vec(len.checked_add(1).ok_or(Error::BufferTooSmall)?)?;
             }
             _ => return Err(Error::InvalidMarker(byte)),
         }
