@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "zerompk"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "msgpacker",
@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "zerompk_derive"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "proc-macro2",
  "quote",
