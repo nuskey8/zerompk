@@ -53,6 +53,24 @@ struct LongMapKeyPoint {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(map)]
+struct Str8MapKey {
+    #[msgpack(key = "abcdefghijklmnopqrstuvwxyz123456")]
+    value: u8,
+}
+
+#[test]
+fn derive_map_preencodes_str8_key() {
+    let value = Str8MapKey { value: 42 };
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    let mut expected = vec![0x81, 0xd9, 32];
+    expected.extend_from_slice(b"abcdefghijklmnopqrstuvwxyz123456");
+    expected.push(42);
+    assert_eq!(data, expected);
+    assert_eq!(zerompk::from_msgpack::<Str8MapKey>(&data).unwrap(), value);
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 struct UnitStruct;
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]

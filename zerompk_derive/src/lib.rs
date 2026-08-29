@@ -653,6 +653,26 @@ fn should_use_bin(ty: &Type, cfg: Option<&FieldConfig>) -> bool {
     cfg.and_then(|v| v.as_bytes).unwrap_or(true)
 }
 
+fn encode_static_string(value: &LitStr) -> proc_macro2::Literal {
+    let string = value.value();
+    let bytes = string.as_bytes();
+    let mut encoded = Vec::with_capacity(bytes.len() + 5);
+    match bytes.len() {
+        0..=31 => encoded.push(0xa0 | bytes.len() as u8),
+        32..=255 => encoded.extend_from_slice(&[0xd9, bytes.len() as u8]),
+        256..=65535 => {
+            encoded.push(0xda);
+            encoded.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+        }
+        _ => {
+            encoded.push(0xdb);
+            encoded.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+        }
+    }
+    encoded.extend_from_slice(bytes);
+    proc_macro2::Literal::byte_string(&encoded)
+}
+
 fn build_read_expr(ty: &Type, cfg: Option<&FieldConfig>) -> proc_macro2::TokenStream {
     if is_ref_str(ty) {
         quote! {
@@ -1197,6 +1217,7 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
         .map(parse_field_config)
         .collect::<Result<_>>()?;
     let (field_indices, key_lits) = parse_named_map_keys(fields, &field_configs)?;
+    let encoded_key_lits: Vec<_> = key_lits.iter().map(encode_static_string).collect();
     let count = field_indices.len();
     let names: Vec<_> = field_indices
         .iter()
@@ -1251,7 +1272,7 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
     let write = quote! {
         writer.write_map_len(#count)?;
         #(
-            writer.write_string(#key_lits)?;
+            writer.write_static_string(#key_lits, #encoded_key_lits)?;
             #value_writes
         )*
         Ok(())

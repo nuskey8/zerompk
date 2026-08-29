@@ -67,6 +67,12 @@ pub trait Write {
     /// Writes a UTF-8 string.
     fn write_string(&mut self, s: &str) -> Result<()>;
 
+    /// Writes a static UTF-8 string literal.
+    #[inline(always)]
+    fn write_static_string(&mut self, value: &'static str, _encoded: &'static [u8]) -> Result<()> {
+        self.write_string(value)
+    }
+
     /// Writes a binary blob.
     fn write_binary(&mut self, data: &[u8]) -> Result<()>;
 
@@ -123,6 +129,12 @@ impl<'a> SliceWriter<'a> {
 }
 
 impl<'a> Write for SliceWriter<'a> {
+    #[inline(always)]
+    fn write_static_string(&mut self, _value: &'static str, encoded: &'static [u8]) -> Result<()> {
+        self.take_slice(encoded.len())?.copy_from_slice(encoded);
+        Ok(())
+    }
+
     #[inline(always)]
     fn write_u8(&mut self, value: u8) -> Result<()> {
         if value <= POS_FIXINT_END {
@@ -224,6 +236,12 @@ impl VecWriter {
 
 impl Write for VecWriter {
     #[inline(always)]
+    fn write_static_string(&mut self, _value: &'static str, encoded: &'static [u8]) -> Result<()> {
+        self.buffer.extend_from_slice(encoded);
+        Ok(())
+    }
+
+    #[inline(always)]
     fn write_u8(&mut self, value: u8) -> Result<()> {
         if value <= POS_FIXINT_END {
             self.buffer.push(value);
@@ -294,6 +312,11 @@ impl<W: std::io::Write> IOWriter<W> {
 
 #[cfg(feature = "std")]
 impl<W: std::io::Write> Write for IOWriter<W> {
+    #[inline(always)]
+    fn write_static_string(&mut self, _value: &'static str, encoded: &'static [u8]) -> Result<()> {
+        self.write_all(encoded)
+    }
+
     #[inline(always)]
     fn write_u8(&mut self, value: u8) -> Result<()> {
         if value <= POS_FIXINT_END {
