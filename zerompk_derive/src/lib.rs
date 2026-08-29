@@ -617,6 +617,10 @@ fn is_cow_u8_slice(ty: &Type) -> bool {
 }
 
 fn is_vec_u8(ty: &Type) -> bool {
+    is_vec_of(ty, "u8")
+}
+
+fn is_vec_of(ty: &Type, element: &str) -> bool {
     let Type::Path(type_path) = ty else {
         return false;
     };
@@ -638,12 +642,68 @@ fn is_vec_u8(ty: &Type) -> bool {
             return false;
         };
 
-        path.path.is_ident("u8")
+        path.path.is_ident(element)
     })
 }
 
 fn is_bin_type(ty: &Type) -> bool {
     is_ref_u8_slice(ty) || is_cow_u8_slice(ty) || is_vec_u8(ty)
+}
+
+fn primitive_slice_method(ty: &Type) -> Option<Ident> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    if path.qself.is_some() {
+        return None;
+    }
+
+    let method = match path.path.get_ident()?.to_string().as_str() {
+        "bool" => "write_boolean_slice",
+        "u8" => "write_u8_slice",
+        "u16" => "write_u16_slice",
+        "u32" => "write_u32_slice",
+        "u64" => "write_u64_slice",
+        "i8" => "write_i8_slice",
+        "i16" => "write_i16_slice",
+        "i32" => "write_i32_slice",
+        "i64" => "write_i64_slice",
+        "f32" => "write_f32_slice",
+        "f64" => "write_f64_slice",
+        _ => return None,
+    };
+    Some(format_ident!("{method}"))
+}
+
+fn sequence_element_type(ty: &Type) -> Option<&Type> {
+    match ty {
+        Type::Reference(reference) => match reference.elem.as_ref() {
+            Type::Slice(slice) => Some(slice.elem.as_ref()),
+            Type::Array(array) => Some(array.elem.as_ref()),
+            _ => None,
+        },
+        Type::Slice(slice) => Some(slice.elem.as_ref()),
+        Type::Array(array) => Some(array.elem.as_ref()),
+        Type::Path(type_path) => {
+            let last = type_path.path.segments.last()?;
+            if last.ident != "Vec" && last.ident != "Cow" {
+                return None;
+            }
+            let PathArguments::AngleBracketed(args) = &last.arguments else {
+                return None;
+            };
+            args.args.iter().find_map(|arg| match arg {
+                GenericArgument::Type(Type::Slice(slice)) => Some(slice.elem.as_ref()),
+                GenericArgument::Type(ty) if last.ident == "Vec" => Some(ty),
+                _ => None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn sequence_slice_method(ty: &Type) -> Option<Ident> {
+    primitive_slice_method(sequence_element_type(ty)?)
 }
 
 fn should_use_bin(ty: &Type, cfg: Option<&FieldConfig>) -> bool {
@@ -705,6 +765,11 @@ fn build_write_expr(
     } else if should_use_bin(ty, cfg) {
         quote! {
             writer.write_binary(::core::convert::AsRef::<[u8]>::as_ref(&#value))?;
+        }
+    } else if let Some(method) = sequence_slice_method(ty) {
+        quote! {
+            writer.write_array_len(#value.len())?;
+            writer.#method(::core::convert::AsRef::<[_]>::as_ref(&#value))?;
         }
     } else {
         quote! {
@@ -1039,11 +1104,27 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 })
                 .collect();
 
-            let write = quote! {
-                writer.write_array_len(#array_len)?;
-                #( #slot_writes )*
-                Ok(())
-            };
+            let homogeneous_slice_method =
+                tys.first()
+                    .and_then(primitive_slice_method)
+                    .filter(|method| {
+                        tys.iter()
+                            .all(|ty| primitive_slice_method(ty).as_ref() == Some(method))
+                    });
+            let write =
+                if let (true, Some(method)) = (is_dense_sequential, homogeneous_slice_method) {
+                    quote! {
+                        writer.write_array_len(#array_len)?;
+                        writer.#method(&[#( self.#names ),*])?;
+                        Ok(())
+                    }
+                } else {
+                    quote! {
+                        writer.write_array_len(#array_len)?;
+                        #( #slot_writes )*
+                        Ok(())
+                    }
+                };
 
             let read = if is_dense_sequential {
                 let direct_fields: Vec<_> = names
@@ -1141,11 +1222,27 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 })
                 .collect();
 
-            let write = quote! {
-                writer.write_array_len(#array_len)?;
-                #( #slot_writes )*
-                Ok(())
-            };
+            let homogeneous_slice_method =
+                tys.first()
+                    .and_then(primitive_slice_method)
+                    .filter(|method| {
+                        tys.iter()
+                            .all(|ty| primitive_slice_method(ty).as_ref() == Some(method))
+                    });
+            let write =
+                if let (true, Some(method)) = (is_dense_sequential, homogeneous_slice_method) {
+                    quote! {
+                        writer.write_array_len(#array_len)?;
+                        writer.#method(&[#( self.#idx ),*])?;
+                        Ok(())
+                    }
+                } else {
+                    quote! {
+                        writer.write_array_len(#array_len)?;
+                        #( #slot_writes )*
+                        Ok(())
+                    }
+                };
 
             let ctor_values: Vec<_> = vars
                 .iter()

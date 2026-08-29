@@ -50,6 +50,20 @@ impl<T> FromMessagePackOwned for T where T: for<'a> FromMessagePack<'a> {}
 pub trait ToMessagePack {
     /// Writes the MessagePack representation of this value into the provided writer.
     fn write<W: Write>(&self, writer: &mut W) -> Result<()>;
+
+    /// Writes a contiguous slice of values. Primitive implementations override this
+    /// to let writers reserve capacity and encode the whole slice in one operation.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn write_slice<W: Write>(values: &[Self], writer: &mut W) -> Result<()>
+    where
+        Self: Sized,
+    {
+        for value in values {
+            value.write(writer)?;
+        }
+        Ok(())
+    }
 }
 
 /// Deserializes a value of type `T` from a MessagePack-encoded byte slice.
