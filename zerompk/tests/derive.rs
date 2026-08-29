@@ -8,6 +8,74 @@ struct PointArray {
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(array)]
+struct PrimitiveVectors {
+    flags: Vec<bool>,
+    u8s: Vec<u8>,
+    u16s: Vec<u16>,
+    u32s: Vec<u32>,
+    u64s: Vec<u64>,
+    i8s: Vec<i8>,
+    i16s: Vec<i16>,
+    i32s: Vec<i32>,
+    i64s: Vec<i64>,
+    f32s: Vec<f32>,
+    f64s: Vec<f64>,
+}
+
+#[test]
+fn derive_primitive_vectors_use_standard_array_encoding_with_exact_buffer() {
+    let value = PrimitiveVectors {
+        flags: vec![true, false, true],
+        u8s: vec![0, 127, 128, u8::MAX],
+        u16s: vec![0, 128, 256, u16::MAX],
+        u32s: vec![0, 256, 65_536, u32::MAX],
+        u64s: vec![0, 65_536, 1 << 32, u64::MAX],
+        i8s: vec![i8::MIN, -32, 0, i8::MAX],
+        i16s: vec![i16::MIN, -128, 128, i16::MAX],
+        i32s: vec![i32::MIN, -32_768, 32_768, i32::MAX],
+        i64s: vec![i64::MIN, i32::MIN as i64 - 1, i64::MAX],
+        f32s: vec![f32::MIN, -0.0, f32::MAX],
+        f64s: vec![f64::MIN, -0.0, f64::MAX],
+    };
+    let mut roomy_output = [0; 512];
+    let len = zerompk::to_msgpack(&value, &mut roomy_output).unwrap();
+    let mut exact_output = vec![0; len];
+    let exact_len = zerompk::to_msgpack(&value, &mut exact_output).unwrap();
+    assert_eq!(exact_len, len);
+    assert_eq!(exact_output, roomy_output[..len]);
+    assert_eq!(
+        zerompk::from_msgpack::<PrimitiveVectors>(&exact_output).unwrap(),
+        value
+    );
+}
+
+#[derive(ToMessagePack)]
+#[msgpack(array)]
+struct PrimitiveSequences<'a> {
+    slice: &'a [i32],
+    array: [f64; 3],
+    cow: std::borrow::Cow<'a, [u32]>,
+}
+
+#[test]
+fn derive_primitive_slices_arrays_and_cows_use_standard_array_encoding() {
+    let slice = [i32::MIN, -1, 0, i32::MAX];
+    let value = PrimitiveSequences {
+        slice: &slice,
+        array: [f64::MIN, -0.0, f64::MAX],
+        cow: std::borrow::Cow::Borrowed(&[0, 128, u32::MAX]),
+    };
+    let mut output = [0; 128];
+    let len = zerompk::to_msgpack(&value, &mut output).unwrap();
+
+    let expected_value = (value.slice, value.array, value.cow.as_ref());
+    let mut expected = [0; 128];
+    let expected_len = zerompk::to_msgpack(&expected_value, &mut expected).unwrap();
+    assert_eq!(&output[..len], &expected[..expected_len]);
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
 struct DefaultReprPoint {
     x: i32,
     y: i32,
@@ -50,6 +118,24 @@ struct LongMapKeyPoint {
     x: i32,
     #[msgpack(key = "zzzzzzzzz")]
     y: i32,
+}
+
+#[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]
+#[msgpack(map)]
+struct Str8MapKey {
+    #[msgpack(key = "abcdefghijklmnopqrstuvwxyz123456")]
+    value: u8,
+}
+
+#[test]
+fn derive_map_preencodes_str8_key() {
+    let value = Str8MapKey { value: 42 };
+    let data = zerompk::to_msgpack_vec(&value).unwrap();
+    let mut expected = vec![0x81, 0xd9, 32];
+    expected.extend_from_slice(b"abcdefghijklmnopqrstuvwxyz123456");
+    expected.push(42);
+    assert_eq!(data, expected);
+    assert_eq!(zerompk::from_msgpack::<Str8MapKey>(&data).unwrap(), value);
 }
 
 #[derive(ToMessagePack, FromMessagePack, Debug, PartialEq)]

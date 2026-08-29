@@ -9,7 +9,7 @@ use core::hash::Hash;
 // -------------------------------------------------------------------------------
 
 macro_rules! impl_scalar {
-    ($ty:ty, $write_fn:ident, $read_fn:ident) => {
+    ($ty:ty, $write_fn:ident, $write_slice_fn:ident, $read_fn:ident) => {
         impl<'a> FromMessagePack<'a> for $ty {
             #[inline(always)]
             fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self>
@@ -25,21 +25,26 @@ macro_rules! impl_scalar {
             fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
                 writer.$write_fn(*self)
             }
+
+            #[inline(always)]
+            fn write_slice<W: Write>(values: &[Self], writer: &mut W) -> crate::Result<()> {
+                writer.$write_slice_fn(values)
+            }
         }
     };
 }
 
-impl_scalar!(bool, write_boolean, read_boolean);
-impl_scalar!(i8, write_i8, read_i8);
-impl_scalar!(i16, write_i16, read_i16);
-impl_scalar!(i32, write_i32, read_i32);
-impl_scalar!(i64, write_i64, read_i64);
-impl_scalar!(u8, write_u8, read_u8);
-impl_scalar!(u16, write_u16, read_u16);
-impl_scalar!(u32, write_u32, read_u32);
-impl_scalar!(u64, write_u64, read_u64);
-impl_scalar!(f32, write_f32, read_f32);
-impl_scalar!(f64, write_f64, read_f64);
+impl_scalar!(bool, write_boolean, write_boolean_slice, read_boolean);
+impl_scalar!(i8, write_i8, write_i8_slice, read_i8);
+impl_scalar!(i16, write_i16, write_i16_slice, read_i16);
+impl_scalar!(i32, write_i32, write_i32_slice, read_i32);
+impl_scalar!(i64, write_i64, write_i64_slice, read_i64);
+impl_scalar!(u8, write_u8, write_u8_slice, read_u8);
+impl_scalar!(u16, write_u16, write_u16_slice, read_u16);
+impl_scalar!(u32, write_u32, write_u32_slice, read_u32);
+impl_scalar!(u64, write_u64, write_u64_slice, read_u64);
+impl_scalar!(f32, write_f32, write_f32_slice, read_f32);
+impl_scalar!(f64, write_f64, write_f64_slice, read_f64);
 
 impl<'a> FromMessagePack<'a> for usize {
     #[inline(always)]
@@ -180,10 +185,7 @@ impl<T: ToMessagePack> ToMessagePack for [T] {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_array_len(self.len())?;
-        for item in self {
-            item.write(writer)?;
-        }
-        Ok(())
+        T::write_slice(self, writer)
     }
 }
 
@@ -230,10 +232,7 @@ impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_array_len(N)?;
-        for item in self {
-            item.write(writer)?;
-        }
-        Ok(())
+        T::write_slice(self, writer)
     }
 }
 
@@ -394,11 +393,7 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::vec::Vec<T> {
 impl<T: ToMessagePack> ToMessagePack for alloc::vec::Vec<T> {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
-        writer.write_array_len(self.len())?;
-        for item in self {
-            item.write(writer)?;
-        }
-        Ok(())
+        self.as_slice().write(writer)
     }
 }
 
@@ -421,10 +416,9 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::collections::Vec
 impl<T: ToMessagePack> ToMessagePack for alloc::collections::VecDeque<T> {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_array_len(self.len())?;
-        for item in self {
-            item.write(writer)?;
-        }
-        Ok(())
+        let (front, back) = self.as_slices();
+        T::write_slice(front, writer)?;
+        T::write_slice(back, writer)
     }
 }
 
