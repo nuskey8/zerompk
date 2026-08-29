@@ -123,6 +123,16 @@ impl<'a> SliceWriter<'a> {
 }
 
 impl<'a> Write for SliceWriter<'a> {
+    #[inline(always)]
+    fn write_u8(&mut self, value: u8) -> Result<()> {
+        if value <= POS_FIXINT_END {
+            *self.take_array::<1>()? = [value];
+        } else {
+            *self.take_array::<2>()? = [UINT8_MARKER, value];
+        }
+        Ok(())
+    }
+
     impl_write_methods! {
         write = |writer, data| {
             match data {
@@ -213,6 +223,16 @@ impl VecWriter {
 }
 
 impl Write for VecWriter {
+    #[inline(always)]
+    fn write_u8(&mut self, value: u8) -> Result<()> {
+        if value <= POS_FIXINT_END {
+            self.buffer.push(value);
+        } else {
+            self.buffer.extend_from_slice(&[UINT8_MARKER, value]);
+        }
+        Ok(())
+    }
+
     impl_write_methods! {
         write = |writer, data| {
             if let [byte] = data {
@@ -274,6 +294,15 @@ impl<W: std::io::Write> IOWriter<W> {
 
 #[cfg(feature = "std")]
 impl<W: std::io::Write> Write for IOWriter<W> {
+    #[inline(always)]
+    fn write_u8(&mut self, value: u8) -> Result<()> {
+        if value <= POS_FIXINT_END {
+            self.write_all(&[value])
+        } else {
+            self.write_all(&[UINT8_MARKER, value])
+        }
+    }
+
     impl_write_methods! {
         write = |writer, data| writer.write_all(data),
         write_parts = |writer, header, payload| {

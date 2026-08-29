@@ -23,15 +23,6 @@ macro_rules! impl_write_methods {
         }
 
         #[inline(always)]
-        fn write_u8(&mut self, value: u8) -> Result<()> {
-            let bytes = [UINT8_MARKER, value];
-            let len = if value <= POS_FIXINT_END { 1 } else { 2 };
-            let $writer = &mut *self;
-            let $data = if len == 1 { &bytes[1..] } else { &bytes };
-            $write
-        }
-
-        #[inline(always)]
         fn write_u16(&mut self, value: u16) -> Result<()> {
             match value {
                 0..=127 => {
