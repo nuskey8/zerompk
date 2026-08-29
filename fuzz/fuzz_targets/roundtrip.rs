@@ -24,6 +24,13 @@ struct FuzzNested {
 
 fuzz_target!(|value: FuzzValue| {
     if let Ok(buf) = zerompk::to_msgpack_vec(&value) {
+        if let Some(hint) = value.size_hint() {
+            assert!(buf.len() <= hint.upper_bound());
+            let mut hinted = vec![0u8; hint.upper_bound()];
+            let written = zerompk::to_msgpack(&value, &mut hinted)
+                .expect("trusted size hint must bound unchecked serialization");
+            assert_eq!(&hinted[..written], buf);
+        }
         let decoded = zerompk::from_msgpack::<FuzzValue>(&buf)
             .expect("roundtrip decode must succeed for encoded data");
         assert_eq!(decoded, value);

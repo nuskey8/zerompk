@@ -22,6 +22,7 @@ use alloc::vec::Vec;
 pub use error::{Error, Result};
 pub use read::{Read, SliceReader, Tag};
 pub use value::Value;
+
 pub use write::Write;
 
 extern crate alloc;
@@ -166,8 +167,13 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 /// }
 /// ```
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
+    /// The maximum size hint preallocation to avoid excessive memory usage.
+    const MAX_SIZE_HINT_PREALLOC: usize = 16 * 1024 * 1024;
+
     let mut writer = match value.size_hint() {
-        Some(hint) => write::VecWriter::with_capacity(hint.upper_bound()),
+        Some(hint) => {
+            write::VecWriter::with_capacity_hint(hint.upper_bound().min(MAX_SIZE_HINT_PREALLOC))
+        }
         None => write::VecWriter::new(),
     };
     value.write(&mut writer)?;

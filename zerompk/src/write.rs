@@ -551,10 +551,12 @@ impl VecWriter {
         VecWriter { buffer: Vec::new() }
     }
 
-    pub fn with_capacity(capacity: usize) -> Self {
-        VecWriter {
-            buffer: Vec::with_capacity(capacity),
-        }
+    pub(crate) fn with_capacity_hint(capacity: usize) -> Self {
+        let mut buffer = Vec::new();
+        // A hint is only an optimization. Allocation failure must not abort
+        // serialization before any output has actually required this memory.
+        let _ = buffer.try_reserve(capacity);
+        VecWriter { buffer }
     }
 
     pub fn into_vec(self) -> Vec<u8> {

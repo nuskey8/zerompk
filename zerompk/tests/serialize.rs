@@ -356,6 +356,24 @@ fn test_trusted_size_hint_bounds_runtime_sized_container() {
 }
 
 #[test]
+fn test_huge_trusted_size_hint_does_not_force_huge_preallocation() {
+    struct TinyValue;
+
+    impl zerompk::ToMessagePack for TinyValue {
+        fn write<W: zerompk::Write>(&self, writer: &mut W) -> zerompk::Result<()> {
+            writer.write_nil()
+        }
+
+        fn size_hint(&self) -> Option<zerompk::TrustedSizeHint> {
+            // SAFETY: one byte is less than this deliberately loose upper bound.
+            Some(unsafe { zerompk::TrustedSizeHint::new_unchecked(usize::MAX) })
+        }
+    }
+
+    assert_eq!(zerompk::to_msgpack_vec(&TinyValue).unwrap(), [0xc0]);
+}
+
+#[test]
 #[cfg(feature = "std")]
 fn test_write_read_msgpack_std_io() {
     let point = Point { x: 7, y: 9 };
