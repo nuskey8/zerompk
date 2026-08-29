@@ -46,6 +46,27 @@ pub trait FromMessagePackOwned: for<'a> FromMessagePack<'a> {}
 
 impl<T> FromMessagePackOwned for T where T: for<'a> FromMessagePack<'a> {}
 
+/// Proof that the next serialization of a value has an exact encoded size.
+pub struct ExactSize(usize);
+
+impl ExactSize {
+    /// Creates an exact-size proof.
+    ///
+    /// # Safety
+    /// The next serialization of the value this proof describes must write exactly
+    /// `size` bytes. Serialization-relevant state must not change in between.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub const unsafe fn new_unchecked(size: usize) -> Self {
+        Self(size)
+    }
+
+    #[inline(always)]
+    pub const fn get(&self) -> usize {
+        self.0
+    }
+}
+
 /// A data structure that can be serialized into MessagePack format.
 pub trait ToMessagePack {
     /// Writes the MessagePack representation of this value into the provided writer.
@@ -54,11 +75,8 @@ pub trait ToMessagePack {
     /// Returns the exact number of bytes written by the next call to [`Self::write`],
     /// or `None` when the size cannot be determined cheaply.
     ///
-    /// # Safety
-    /// When an override returns `Some`, that size and the following `write` call
-    /// must describe exactly the same output.
     #[inline]
-    unsafe fn size(&self) -> Option<usize> {
+    fn size(&self) -> Option<ExactSize> {
         None
     }
 
@@ -125,8 +143,8 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 /// ```
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
     // SAFETY: a returned size is required to match the immediately following write.
-    let mut writer = match unsafe { value.size() } {
-        Some(size) => write::VecWriter::with_capacity(size),
+    let mut writer = match value.size() {
+        Some(size) => write::VecWriter::with_capacity(size.get()),
         None => write::VecWriter::new(),
     };
     value.write(&mut writer)?;
@@ -160,7 +178,8 @@ pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
 /// ```
 pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
     // SAFETY: `size` guarantees the byte count of the immediately following write.
-    if let Some(size) = unsafe { value.size() } {
+    if let Some(size) = value.size() {
+        let size = size.get();
         if size > buf.len() {
             return Err(Error::BufferTooSmall);
         }

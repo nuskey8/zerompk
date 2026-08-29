@@ -1168,13 +1168,14 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 };
                 quote! {
                     #[inline]
-                    unsafe fn size(&self) -> ::core::option::Option<usize> {
+                    fn size(&self) -> ::core::option::Option<::zerompk::ExactSize> {
                         let mut __size = #header_size;
                         #(
-                            let __field_size = unsafe { ::zerompk::ToMessagePack::size(&self.#names)? };
-                            __size = __size.checked_add(__field_size)?;
+                            let __field_size = ::zerompk::ToMessagePack::size(&self.#names)?;
+                            __size = __size.checked_add(__field_size.get())?;
                         )*
-                        ::core::option::Option::Some(__size)
+                        // SAFETY: the header and every serialized field have exact-size proofs.
+                        ::core::option::Option::Some(unsafe { ::zerompk::ExactSize::new_unchecked(__size) })
                     }
                 }
             } else {
@@ -1328,13 +1329,14 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 };
                 quote! {
                     #[inline]
-                    unsafe fn size(&self) -> ::core::option::Option<usize> {
+                    fn size(&self) -> ::core::option::Option<::zerompk::ExactSize> {
                         let mut __size = #header_size;
                         #(
-                            let __field_size = unsafe { ::zerompk::ToMessagePack::size(&self.#idx)? };
-                            __size = __size.checked_add(__field_size)?;
+                            let __field_size = ::zerompk::ToMessagePack::size(&self.#idx)?;
+                            __size = __size.checked_add(__field_size.get())?;
                         )*
-                        ::core::option::Option::Some(__size)
+                        // SAFETY: the header and every serialized field have exact-size proofs.
+                        ::core::option::Option::Some(unsafe { ::zerompk::ExactSize::new_unchecked(__size) })
                     }
                 }
             } else {
@@ -1354,8 +1356,9 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
             },
             size: quote! {
                 #[inline]
-                unsafe fn size(&self) -> ::core::option::Option<usize> {
-                    ::core::option::Option::Some(1)
+                fn size(&self) -> ::core::option::Option<::zerompk::ExactSize> {
+                    // SAFETY: unit structs always encode as one nil byte.
+                    ::core::option::Option::Some(unsafe { ::zerompk::ExactSize::new_unchecked(1) })
                 }
             },
         }),

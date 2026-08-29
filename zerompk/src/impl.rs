@@ -32,8 +32,9 @@ macro_rules! impl_scalar {
             }
 
             #[inline(always)]
-            unsafe fn size(&self) -> Option<usize> {
-                Some(($size)(*self))
+            fn size(&self) -> Option<crate::ExactSize> {
+                // SAFETY: primitive encodings are completely determined by their value.
+                Some(unsafe { crate::ExactSize::new_unchecked(($size)(*self)) })
             }
         }
     };
@@ -294,20 +295,20 @@ impl<T: ToMessagePack> ToMessagePack for [T] {
     }
 
     #[inline]
-    unsafe fn size(&self) -> Option<usize> {
-        let mut size: usize = if self.len() < 16 {
+    fn size(&self) -> Option<crate::ExactSize> {
+        let header_size: usize = if self.len() < 16 {
             1
         } else if self.len() <= u16::MAX as usize {
             3
         } else {
             5
         };
+        let mut size = header_size;
         for value in self {
-            // SAFETY: callers of this method uphold each element's size contract.
-            let value_size = unsafe { value.size()? };
-            size = size.checked_add(value_size)?;
+            size = size.checked_add(value.size()?.get())?;
         }
-        Some(size)
+        // SAFETY: the array header and every element have exact-size proofs.
+        Some(unsafe { crate::ExactSize::new_unchecked(size) })
     }
 }
 
@@ -358,9 +359,8 @@ impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
     }
 
     #[inline]
-    unsafe fn size(&self) -> Option<usize> {
-        // SAFETY: arrays use the same representation as slices.
-        unsafe { self.as_slice().size() }
+    fn size(&self) -> Option<crate::ExactSize> {
+        self.as_slice().size()
     }
 }
 
@@ -435,9 +435,8 @@ impl<T: ToMessagePack + ?Sized> ToMessagePack for &T {
     }
 
     #[inline]
-    unsafe fn size(&self) -> Option<usize> {
-        // SAFETY: forwarded from the caller.
-        unsafe { T::size(self) }
+    fn size(&self) -> Option<crate::ExactSize> {
+        T::size(self)
     }
 }
 
@@ -531,9 +530,8 @@ impl<T: ToMessagePack> ToMessagePack for alloc::vec::Vec<T> {
     }
 
     #[inline]
-    unsafe fn size(&self) -> Option<usize> {
-        // SAFETY: vectors use the same representation as slices.
-        unsafe { self.as_slice().size() }
+    fn size(&self) -> Option<crate::ExactSize> {
+        self.as_slice().size()
     }
 }
 
