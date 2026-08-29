@@ -339,57 +339,68 @@ macro_rules! impl_write_methods {
         #[inline(always)]
         fn write_string(&mut self, value: &str) -> Result<()> {
             let len = value.len();
-            let mut header = [0; 5];
-            let header_len = match len {
+            match len {
                 0..=31 => {
-                    header[0] = FIXSTR_START | len as u8;
-                    1
+                    let header = [FIXSTR_START | len as u8];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value.as_bytes();
+                    $write_parts
                 }
                 32..=255 => {
-                    header[..2].copy_from_slice(&[STR8_MARKER, len as u8]);
-                    2
+                    let header = [STR8_MARKER, len as u8];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value.as_bytes();
+                    $write_parts
                 }
                 256..=65535 => {
-                    header[0] = STR16_MARKER;
-                    header[1..3].copy_from_slice(&(len as u16).to_be_bytes());
-                    3
+                    let [a, b] = (len as u16).to_be_bytes();
+                    let header = [STR16_MARKER, a, b];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value.as_bytes();
+                    $write_parts
                 }
                 _ => {
-                    header[0] = STR32_MARKER;
-                    header[1..].copy_from_slice(&(len as u32).to_be_bytes());
-                    5
+                    let [a, b, c, d] = (len as u32).to_be_bytes();
+                    let header = [STR32_MARKER, a, b, c, d];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value.as_bytes();
+                    $write_parts
                 }
-            };
-            let $parts_writer = &mut *self;
-            let $header = &header[..header_len];
-            let $payload = value.as_bytes();
-            $write_parts
+            }
         }
 
         #[inline(always)]
         fn write_binary(&mut self, value: &[u8]) -> Result<()> {
             let len = value.len();
-            let mut header = [0; 5];
-            let header_len = match len {
+            match len {
                 0..=255 => {
-                    header[..2].copy_from_slice(&[BIN8_MARKER, len as u8]);
-                    2
+                    let header = [BIN8_MARKER, len as u8];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value;
+                    $write_parts
                 }
                 256..=65535 => {
-                    header[0] = BIN16_MARKER;
-                    header[1..3].copy_from_slice(&(len as u16).to_be_bytes());
-                    3
+                    let [a, b] = (len as u16).to_be_bytes();
+                    let header = [BIN16_MARKER, a, b];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value;
+                    $write_parts
                 }
                 _ => {
-                    header[0] = BIN32_MARKER;
-                    header[1..].copy_from_slice(&(len as u32).to_be_bytes());
-                    5
+                    let [a, b, c, d] = (len as u32).to_be_bytes();
+                    let header = [BIN32_MARKER, a, b, c, d];
+                    let $parts_writer = &mut *self;
+                    let $header = header.as_slice();
+                    let $payload = value;
+                    $write_parts
                 }
-            };
-            let $parts_writer = &mut *self;
-            let $header = &header[..header_len];
-            let $payload = value;
-            $write_parts
+            }
         }
 
         #[inline(always)]
