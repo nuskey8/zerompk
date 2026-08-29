@@ -977,7 +977,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
         }
     };
 
-    let ImplBody { write, read } = body;
+    let ImplBody { write, read, size } = body;
 
     let tokens = match kind {
         DeriveKind::To => quote! {
@@ -986,6 +986,8 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
                 fn write<W: ::zerompk::Write>(&self, writer: &mut W) -> ::core::result::Result<(), ::zerompk::Error> {
                     #write
                 }
+
+                #size
             }
         },
         DeriveKind::From => {
@@ -1026,6 +1028,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
 struct ImplBody {
     write: proc_macro2::TokenStream,
     read: proc_macro2::TokenStream,
+    size: proc_macro2::TokenStream,
 }
 
 fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
@@ -1149,7 +1152,36 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 }
             };
 
-            Ok(ImplBody { write, read })
+            let size = if is_dense_sequential
+                && field_configs.iter().all(|cfg| cfg.as_bytes.is_none())
+                && tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .all(|(ty, cfg)| !(is_bin_type(ty) && should_use_bin(ty, Some(cfg))))
+            {
+                let header_size = if array_len < 16 {
+                    1usize
+                } else if array_len <= u16::MAX as usize {
+                    3
+                } else {
+                    5
+                };
+                quote! {
+                    #[inline]
+                    unsafe fn size(&self) -> ::core::option::Option<usize> {
+                        let mut __size = #header_size;
+                        #(
+                            let __field_size = unsafe { ::zerompk::ToMessagePack::size(&self.#names)? };
+                            __size = __size.checked_add(__field_size)?;
+                        )*
+                        ::core::option::Option::Some(__size)
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
+            Ok(ImplBody { write, read, size })
         }
         Fields::Unnamed(fields) => {
             let count = fields.unnamed.len();
@@ -1180,7 +1212,11 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Ok(Self(__f0))
                 };
 
-                return Ok(ImplBody { write, read });
+                return Ok(ImplBody {
+                    write,
+                    read,
+                    size: quote! {},
+                });
             }
 
             let idx: Vec<_> = (0..count).map(syn::Index::from).collect();
@@ -1276,7 +1312,36 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 }
             };
 
-            Ok(ImplBody { write, read })
+            let size = if is_dense_sequential
+                && field_configs.iter().all(|cfg| cfg.as_bytes.is_none())
+                && tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .all(|(ty, cfg)| !(is_bin_type(ty) && should_use_bin(ty, Some(cfg))))
+            {
+                let header_size = if array_len < 16 {
+                    1usize
+                } else if array_len <= u16::MAX as usize {
+                    3
+                } else {
+                    5
+                };
+                quote! {
+                    #[inline]
+                    unsafe fn size(&self) -> ::core::option::Option<usize> {
+                        let mut __size = #header_size;
+                        #(
+                            let __field_size = unsafe { ::zerompk::ToMessagePack::size(&self.#idx)? };
+                            __size = __size.checked_add(__field_size)?;
+                        )*
+                        ::core::option::Option::Some(__size)
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
+            Ok(ImplBody { write, read, size })
         }
         Fields::Unit => Ok(ImplBody {
             write: quote! {
@@ -1286,6 +1351,12 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
             read: quote! {
                 reader.read_nil()?;
                 Ok(Self)
+            },
+            size: quote! {
+                #[inline]
+                unsafe fn size(&self) -> ::core::option::Option<usize> {
+                    ::core::option::Option::Some(1)
+                }
             },
         }),
     }
@@ -1486,7 +1557,11 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
         }
     };
 
-    Ok(ImplBody { write, read })
+    Ok(ImplBody {
+        write,
+        read,
+        size: quote! {},
+    })
 }
 
 fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
@@ -1550,7 +1625,11 @@ fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
         }
     };
 
-    Ok(ImplBody { write, read })
+    Ok(ImplBody {
+        write,
+        read,
+        size: quote! {},
+    })
 }
 
 fn read_tag_dispatch(
@@ -1702,7 +1781,11 @@ fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
         }
     };
 
-    Ok(ImplBody { write, read })
+    Ok(ImplBody {
+        write,
+        read,
+        size: quote! {},
+    })
 }
 
 fn build_enum_variant_payload(

@@ -77,7 +77,7 @@ macro_rules! impl_unsigned_slice {
             let Some(max_len) = values.len().checked_mul($max_len) else {
                 return Err(Error::BufferTooSmall);
             };
-            if max_len > self.buffer.len() - self.pos {
+            if CHECKED && max_len > self.buffer.len() - self.pos {
                 for &value in values {
                     self.$scalar(value)?;
                 }
@@ -104,7 +104,7 @@ macro_rules! impl_signed_slice {
             let Some(max_len) = values.len().checked_mul($max_len) else {
                 return Err(Error::BufferTooSmall);
             };
-            if max_len > self.buffer.len() - self.pos {
+            if CHECKED && max_len > self.buffer.len() - self.pos {
                 for &value in values {
                     self.$scalar(value)?;
                 }
@@ -339,19 +339,27 @@ pub trait Write {
     fn write_ext(&mut self, type_id: i8, data: &[u8]) -> Result<()>;
 }
 
-pub struct SliceWriter<'a> {
+pub struct SliceWriter<'a, const CHECKED: bool = true> {
     buffer: &'a mut [u8],
     pos: usize,
 }
 
-impl<'a> SliceWriter<'a> {
+impl<'a> SliceWriter<'a, true> {
     pub fn new(buffer: &'a mut [u8]) -> Self {
         SliceWriter { buffer, pos: 0 }
     }
+}
 
+impl<'a> SliceWriter<'a, false> {
+    pub(crate) unsafe fn new_unchecked(buffer: &'a mut [u8]) -> Self {
+        SliceWriter { buffer, pos: 0 }
+    }
+}
+
+impl<'a, const CHECKED: bool> SliceWriter<'a, CHECKED> {
     #[inline(always)]
     fn take_array<const N: usize>(&mut self) -> Result<&mut [u8; N]> {
-        if N > self.buffer.len() - self.pos {
+        if CHECKED && N > self.buffer.len() - self.pos {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
@@ -362,7 +370,7 @@ impl<'a> SliceWriter<'a> {
 
     #[inline(always)]
     fn take_slice(&mut self, len: usize) -> Result<&mut [u8]> {
-        if len > self.buffer.len() - self.pos {
+        if CHECKED && len > self.buffer.len() - self.pos {
             cold_path();
             return Err(Error::BufferTooSmall);
         }
@@ -378,7 +386,7 @@ impl<'a> SliceWriter<'a> {
     }
 }
 
-impl<'a> Write for SliceWriter<'a> {
+impl<'a, const CHECKED: bool> Write for SliceWriter<'a, CHECKED> {
     #[inline(always)]
     fn write_static_string(&mut self, _value: &'static str, encoded: &'static [u8]) -> Result<()> {
         self.take_slice(encoded.len())?.copy_from_slice(encoded);
@@ -541,6 +549,12 @@ pub struct VecWriter {
 impl VecWriter {
     pub fn new() -> Self {
         VecWriter { buffer: Vec::new() }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        VecWriter {
+            buffer: Vec::with_capacity(capacity),
+        }
     }
 
     pub fn into_vec(self) -> Vec<u8> {

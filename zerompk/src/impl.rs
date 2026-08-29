@@ -9,7 +9,7 @@ use core::hash::Hash;
 // -------------------------------------------------------------------------------
 
 macro_rules! impl_scalar {
-    ($ty:ty, $write_fn:ident, $write_slice_fn:ident, $read_fn:ident) => {
+    ($ty:ty, $write_fn:ident, $write_slice_fn:ident, $read_fn:ident, $size:expr) => {
         impl<'a> FromMessagePack<'a> for $ty {
             #[inline(always)]
             fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self>
@@ -30,21 +30,126 @@ macro_rules! impl_scalar {
             fn write_slice<W: Write>(values: &[Self], writer: &mut W) -> crate::Result<()> {
                 writer.$write_slice_fn(values)
             }
+
+            #[inline(always)]
+            unsafe fn size(&self) -> Option<usize> {
+                Some(($size)(*self))
+            }
         }
     };
 }
 
-impl_scalar!(bool, write_boolean, write_boolean_slice, read_boolean);
-impl_scalar!(i8, write_i8, write_i8_slice, read_i8);
-impl_scalar!(i16, write_i16, write_i16_slice, read_i16);
-impl_scalar!(i32, write_i32, write_i32_slice, read_i32);
-impl_scalar!(i64, write_i64, write_i64_slice, read_i64);
-impl_scalar!(u8, write_u8, write_u8_slice, read_u8);
-impl_scalar!(u16, write_u16, write_u16_slice, read_u16);
-impl_scalar!(u32, write_u32, write_u32_slice, read_u32);
-impl_scalar!(u64, write_u64, write_u64_slice, read_u64);
-impl_scalar!(f32, write_f32, write_f32_slice, read_f32);
-impl_scalar!(f64, write_f64, write_f64_slice, read_f64);
+impl_scalar!(
+    bool,
+    write_boolean,
+    write_boolean_slice,
+    read_boolean,
+    |_| 1
+);
+impl_scalar!(
+    i8,
+    write_i8,
+    write_i8_slice,
+    read_i8,
+    |v: i8| if (-32..=127).contains(&v) { 1 } else { 2 }
+);
+impl_scalar!(
+    i16,
+    write_i16,
+    write_i16_slice,
+    read_i16,
+    |v: i16| if (-32..=127).contains(&v) {
+        1
+    } else if (-128..=127).contains(&v) {
+        2
+    } else {
+        3
+    }
+);
+impl_scalar!(
+    i32,
+    write_i32,
+    write_i32_slice,
+    read_i32,
+    |v: i32| if (-32..=127).contains(&v) {
+        1
+    } else if (-128..=127).contains(&v) {
+        2
+    } else if (-32768..=32767).contains(&v) {
+        3
+    } else {
+        5
+    }
+);
+impl_scalar!(
+    i64,
+    write_i64,
+    write_i64_slice,
+    read_i64,
+    |v: i64| if (-32..=127).contains(&v) {
+        1
+    } else if (-128..=127).contains(&v) {
+        2
+    } else if (-32768..=32767).contains(&v) {
+        3
+    } else if (-2147483648..=2147483647).contains(&v) {
+        5
+    } else {
+        9
+    }
+);
+impl_scalar!(u8, write_u8, write_u8_slice, read_u8, |v: u8| if v <= 127 {
+    1
+} else {
+    2
+});
+impl_scalar!(
+    u16,
+    write_u16,
+    write_u16_slice,
+    read_u16,
+    |v: u16| if v <= 127 {
+        1
+    } else if v <= 255 {
+        2
+    } else {
+        3
+    }
+);
+impl_scalar!(
+    u32,
+    write_u32,
+    write_u32_slice,
+    read_u32,
+    |v: u32| if v <= 127 {
+        1
+    } else if v <= 255 {
+        2
+    } else if v <= 65535 {
+        3
+    } else {
+        5
+    }
+);
+impl_scalar!(
+    u64,
+    write_u64,
+    write_u64_slice,
+    read_u64,
+    |v: u64| if v <= 127 {
+        1
+    } else if v <= 255 {
+        2
+    } else if v <= 65535 {
+        3
+    } else if v <= 4294967295 {
+        5
+    } else {
+        9
+    }
+);
+impl_scalar!(f32, write_f32, write_f32_slice, read_f32, |_| 5);
+impl_scalar!(f64, write_f64, write_f64_slice, read_f64, |_| 9);
 
 impl<'a> FromMessagePack<'a> for usize {
     #[inline(always)]
@@ -187,6 +292,23 @@ impl<T: ToMessagePack> ToMessagePack for [T] {
         writer.write_array_len(self.len())?;
         T::write_slice(self, writer)
     }
+
+    #[inline]
+    unsafe fn size(&self) -> Option<usize> {
+        let mut size: usize = if self.len() < 16 {
+            1
+        } else if self.len() <= u16::MAX as usize {
+            3
+        } else {
+            5
+        };
+        for value in self {
+            // SAFETY: callers of this method uphold each element's size contract.
+            let value_size = unsafe { value.size()? };
+            size = size.checked_add(value_size)?;
+        }
+        Some(size)
+    }
 }
 
 impl<'a, T: FromMessagePack<'a>, const N: usize> FromMessagePack<'a> for [T; N] {
@@ -233,6 +355,12 @@ impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_array_len(N)?;
         T::write_slice(self, writer)
+    }
+
+    #[inline]
+    unsafe fn size(&self) -> Option<usize> {
+        // SAFETY: arrays use the same representation as slices.
+        unsafe { self.as_slice().size() }
     }
 }
 
@@ -304,6 +432,12 @@ impl<T: ToMessagePack + ?Sized> ToMessagePack for &T {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         T::write(self, writer)
+    }
+
+    #[inline]
+    unsafe fn size(&self) -> Option<usize> {
+        // SAFETY: forwarded from the caller.
+        unsafe { T::size(self) }
     }
 }
 
@@ -394,6 +528,12 @@ impl<T: ToMessagePack> ToMessagePack for alloc::vec::Vec<T> {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         self.as_slice().write(writer)
+    }
+
+    #[inline]
+    unsafe fn size(&self) -> Option<usize> {
+        // SAFETY: vectors use the same representation as slices.
+        unsafe { self.as_slice().size() }
     }
 }
 

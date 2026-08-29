@@ -51,6 +51,17 @@ pub trait ToMessagePack {
     /// Writes the MessagePack representation of this value into the provided writer.
     fn write<W: Write>(&self, writer: &mut W) -> Result<()>;
 
+    /// Returns the exact number of bytes written by the next call to [`Self::write`],
+    /// or `None` when the size cannot be determined cheaply.
+    ///
+    /// # Safety
+    /// When an override returns `Some`, that size and the following `write` call
+    /// must describe exactly the same output.
+    #[inline]
+    unsafe fn size(&self) -> Option<usize> {
+        None
+    }
+
     /// Writes the MessagePack representation of a slice of values into the provided writer.
     #[inline(always)]
     fn write_slice<W: Write>(values: &[Self], writer: &mut W) -> Result<()>
@@ -113,7 +124,11 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 /// }
 /// ```
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
-    let mut writer = write::VecWriter::new();
+    // SAFETY: a returned size is required to match the immediately following write.
+    let mut writer = match unsafe { value.size() } {
+        Some(size) => write::VecWriter::with_capacity(size),
+        None => write::VecWriter::new(),
+    };
     value.write(&mut writer)?;
     Ok(writer.into_vec())
 }
@@ -144,9 +159,21 @@ pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
 /// }
 /// ```
 pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
-    let mut writer = write::SliceWriter::new(buf);
-    value.write(&mut writer)?;
-    Ok(writer.position())
+    // SAFETY: `size` guarantees the byte count of the immediately following write.
+    if let Some(size) = unsafe { value.size() } {
+        if size > buf.len() {
+            return Err(Error::BufferTooSmall);
+        }
+        // SAFETY: the exact output range was validated above.
+        let mut writer = unsafe { write::SliceWriter::new_unchecked(&mut buf[..size]) };
+        value.write(&mut writer)?;
+        debug_assert_eq!(writer.position(), size);
+        Ok(writer.position())
+    } else {
+        let mut writer = write::SliceWriter::new(buf);
+        value.write(&mut writer)?;
+        Ok(writer.position())
+    }
 }
 
 /// Serializes a value of type `T` into the I/O stream.
