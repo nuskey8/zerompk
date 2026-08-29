@@ -4,12 +4,66 @@ use alloc::string::ToString;
 #[cfg(feature = "std")]
 use core::hash::Hash;
 
+#[inline(always)]
+fn array_header_size(len: usize) -> usize {
+    if len < 16 {
+        1
+    } else if len <= u16::MAX as usize {
+        3
+    } else {
+        5
+    }
+}
+
+#[inline]
+fn sequence_size_hint<T: ToMessagePack>(len: usize) -> Option<crate::TrustedSizeHint> {
+    let element = T::max_size()?.upper_bound();
+    let size = element
+        .checked_mul(len)?
+        .checked_add(array_header_size(len))?;
+    // SAFETY: the header is exact and every element is bounded by `element`.
+    Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
+}
+
+#[inline]
+fn map_size_hint<K: ToMessagePack, V: ToMessagePack>(len: usize) -> Option<crate::TrustedSizeHint> {
+    let pair = K::max_size()?
+        .upper_bound()
+        .checked_add(V::max_size()?.upper_bound())?;
+    let header = if len < 16 {
+        1
+    } else if len <= u16::MAX as usize {
+        3
+    } else {
+        5
+    };
+    let size = pair.checked_mul(len)?.checked_add(header)?;
+    // SAFETY: the header is exact and every key/value pair is bounded by `pair`.
+    Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
+}
+
+#[inline]
+fn string_size_hint(len: usize) -> Option<crate::TrustedSizeHint> {
+    let header = if len < 32 {
+        1
+    } else if len <= u8::MAX as usize {
+        2
+    } else if len <= u16::MAX as usize {
+        3
+    } else {
+        5
+    };
+    let size = len.checked_add(header)?;
+    // SAFETY: MessagePack string headers depend only on the byte length.
+    Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
+}
+
 // -------------------------------------------------------------------------------
 // primitive types
 // -------------------------------------------------------------------------------
 
 macro_rules! impl_scalar {
-    ($ty:ty, $write_fn:ident, $write_slice_fn:ident, $read_fn:ident, $size:expr) => {
+    ($ty:ty, $write_fn:ident, $write_slice_fn:ident, $read_fn:ident, $size:expr, $max:expr) => {
         impl<'a> FromMessagePack<'a> for $ty {
             #[inline(always)]
             fn read<R: Read<'a>>(reader: &mut R) -> crate::Result<Self>
@@ -32,9 +86,15 @@ macro_rules! impl_scalar {
             }
 
             #[inline(always)]
-            fn size(&self) -> Option<crate::ExactSize> {
+            fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
                 // SAFETY: primitive encodings are completely determined by their value.
-                Some(unsafe { crate::ExactSize::new_unchecked(($size)(*self)) })
+                Some(unsafe { crate::TrustedSizeHint::new_unchecked(($size)(*self)) })
+            }
+
+            #[inline(always)]
+            fn max_size() -> Option<crate::TrustedSizeHint> {
+                // SAFETY: this is the largest encoding emitted for this primitive type.
+                Some(unsafe { crate::TrustedSizeHint::new_unchecked($max) })
             }
         }
     };
@@ -45,14 +105,16 @@ impl_scalar!(
     write_boolean,
     write_boolean_slice,
     read_boolean,
-    |_| 1
+    |_| 1,
+    1
 );
 impl_scalar!(
     i8,
     write_i8,
     write_i8_slice,
     read_i8,
-    |v: i8| if (-32..=127).contains(&v) { 1 } else { 2 }
+    |v: i8| if (-32..=127).contains(&v) { 1 } else { 2 },
+    2
 );
 impl_scalar!(
     i16,
@@ -65,7 +127,8 @@ impl_scalar!(
         2
     } else {
         3
-    }
+    },
+    3
 );
 impl_scalar!(
     i32,
@@ -80,7 +143,8 @@ impl_scalar!(
         3
     } else {
         5
-    }
+    },
+    5
 );
 impl_scalar!(
     i64,
@@ -97,13 +161,17 @@ impl_scalar!(
         5
     } else {
         9
-    }
+    },
+    9
 );
-impl_scalar!(u8, write_u8, write_u8_slice, read_u8, |v: u8| if v <= 127 {
-    1
-} else {
+impl_scalar!(
+    u8,
+    write_u8,
+    write_u8_slice,
+    read_u8,
+    |v: u8| if v <= 127 { 1 } else { 2 },
     2
-});
+);
 impl_scalar!(
     u16,
     write_u16,
@@ -115,7 +183,8 @@ impl_scalar!(
         2
     } else {
         3
-    }
+    },
+    3
 );
 impl_scalar!(
     u32,
@@ -130,7 +199,8 @@ impl_scalar!(
         3
     } else {
         5
-    }
+    },
+    5
 );
 impl_scalar!(
     u64,
@@ -147,10 +217,11 @@ impl_scalar!(
         5
     } else {
         9
-    }
+    },
+    9
 );
-impl_scalar!(f32, write_f32, write_f32_slice, read_f32, |_| 5);
-impl_scalar!(f64, write_f64, write_f64_slice, read_f64, |_| 9);
+impl_scalar!(f32, write_f32, write_f32_slice, read_f32, |_| 5, 5);
+impl_scalar!(f64, write_f64, write_f64_slice, read_f64, |_| 9, 9);
 
 impl<'a> FromMessagePack<'a> for usize {
     #[inline(always)]
@@ -173,6 +244,22 @@ impl ToMessagePack for usize {
             writer.write_u32(*self as u32)
         } else {
             writer.write_u64(*self as u64)
+        }
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        if usize::BITS <= 32 {
+            (*self as u32).size_hint()
+        } else {
+            (*self as u64).size_hint()
+        }
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        if usize::BITS <= 32 {
+            u32::max_size()
+        } else {
+            u64::max_size()
         }
     }
 }
@@ -200,6 +287,22 @@ impl ToMessagePack for isize {
             writer.write_i64(*self as i64)
         }
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        if isize::BITS <= 32 {
+            (*self as i32).size_hint()
+        } else {
+            (*self as i64).size_hint()
+        }
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        if isize::BITS <= 32 {
+            i32::max_size()
+        } else {
+            i64::max_size()
+        }
+    }
 }
 
 impl<'a> FromMessagePack<'a> for char {
@@ -221,6 +324,14 @@ impl ToMessagePack for char {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_u32(*self as u32)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        (*self as u32).size_hint()
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        u32::max_size()
+    }
 }
 
 // -------------------------------------------------------------------------------
@@ -241,6 +352,16 @@ impl<T> ToMessagePack for core::marker::PhantomData<T> {
     #[inline(always)]
     fn write<W: Write>(&self, _: &mut W) -> crate::Result<()> {
         Ok(())
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        // SAFETY: PhantomData writes no bytes.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(0) })
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        // SAFETY: PhantomData writes no bytes.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(0) })
     }
 }
 
@@ -269,6 +390,10 @@ impl ToMessagePack for &str {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_string(self)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        string_size_hint(self.len())
+    }
 }
 
 impl<'de, 'a> FromMessagePack<'de> for &'a [u8]
@@ -294,21 +419,8 @@ impl<T: ToMessagePack> ToMessagePack for [T] {
         T::write_slice(self, writer)
     }
 
-    #[inline]
-    fn size(&self) -> Option<crate::ExactSize> {
-        let header_size: usize = if self.len() < 16 {
-            1
-        } else if self.len() <= u16::MAX as usize {
-            3
-        } else {
-            5
-        };
-        let mut size = header_size;
-        for value in self {
-            size = size.checked_add(value.size()?.get())?;
-        }
-        // SAFETY: the array header and every element have exact-size proofs.
-        Some(unsafe { crate::ExactSize::new_unchecked(size) })
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
     }
 }
 
@@ -358,9 +470,12 @@ impl<T: ToMessagePack, const N: usize> ToMessagePack for [T; N] {
         T::write_slice(self, writer)
     }
 
-    #[inline]
-    fn size(&self) -> Option<crate::ExactSize> {
-        self.as_slice().size()
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(N)
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(N)
     }
 }
 
@@ -382,6 +497,10 @@ impl ToMessagePack for alloc::string::String {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_string(self)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        string_size_hint(self.len())
+    }
 }
 
 impl<'a> FromMessagePack<'a> for alloc::borrow::Cow<'a, str> {
@@ -398,6 +517,10 @@ impl ToMessagePack for alloc::borrow::Cow<'_, str> {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_string(self)
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        string_size_hint(self.len())
     }
 }
 
@@ -422,6 +545,10 @@ impl<T: Clone + ToMessagePack> ToMessagePack for alloc::borrow::Cow<'_, [T]> {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         self.as_ref().write(writer)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
+    }
 }
 
 // -------------------------------------------------------------------------------
@@ -435,8 +562,8 @@ impl<T: ToMessagePack + ?Sized> ToMessagePack for &T {
     }
 
     #[inline]
-    fn size(&self) -> Option<crate::ExactSize> {
-        T::size(self)
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        T::size_hint(self)
     }
 }
 
@@ -444,6 +571,10 @@ impl<T: ToMessagePack + ?Sized> ToMessagePack for &mut T {
     #[inline(always)]
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         T::write(self, writer)
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        T::size_hint(self)
     }
 }
 
@@ -468,6 +599,21 @@ impl<T: ToMessagePack> ToMessagePack for Option<T> {
             Some(value) => value.write(writer),
             None => writer.write_nil(),
         }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        match self {
+            Some(value) => value.size_hint(),
+            // SAFETY: None always encodes as one nil byte.
+            None => Some(unsafe { crate::TrustedSizeHint::new_unchecked(1) }),
+        }
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        let upper = T::max_size()?.upper_bound().max(1);
+        // SAFETY: Option is either a one-byte nil or a T value.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(upper) })
     }
 }
 
@@ -505,6 +651,27 @@ impl<T: ToMessagePack, E: ToMessagePack> ToMessagePack for core::result::Result<
             }
         }
     }
+
+    #[inline]
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        let payload = match self {
+            Ok(value) => value.size_hint()?,
+            Err(error) => error.size_hint()?,
+        };
+        // fixarray header and boolean tag are one byte each.
+        let size = payload.upper_bound().checked_add(2)?;
+        // SAFETY: the wrapper and payload sizes are exact.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        let payload = T::max_size()?
+            .upper_bound()
+            .max(E::max_size()?.upper_bound());
+        let upper = payload.checked_add(2)?;
+        // SAFETY: the wrapper is two bytes and the payload is bounded above.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(upper) })
+    }
 }
 
 // -------------------------------------------------------------------------------
@@ -529,9 +696,8 @@ impl<T: ToMessagePack> ToMessagePack for alloc::vec::Vec<T> {
         self.as_slice().write(writer)
     }
 
-    #[inline]
-    fn size(&self) -> Option<crate::ExactSize> {
-        self.as_slice().size()
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
     }
 }
 
@@ -558,6 +724,10 @@ impl<T: ToMessagePack> ToMessagePack for alloc::collections::VecDeque<T> {
         T::write_slice(front, writer)?;
         T::write_slice(back, writer)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
+    }
 }
 
 impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::collections::LinkedList<T> {
@@ -582,6 +752,10 @@ impl<T: ToMessagePack> ToMessagePack for alloc::collections::LinkedList<T> {
         }
         Ok(())
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
+    }
 }
 
 impl<'a, T: Ord + FromMessagePack<'a>> FromMessagePack<'a> for alloc::collections::BTreeSet<T> {
@@ -605,6 +779,10 @@ impl<T: ToMessagePack> ToMessagePack for alloc::collections::BTreeSet<T> {
             item.write(writer)?;
         }
         Ok(())
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
     }
 }
 
@@ -635,6 +813,10 @@ impl<K: ToMessagePack, V: ToMessagePack> ToMessagePack for alloc::collections::B
         }
         Ok(())
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        map_size_hint::<K, V>(self.len())
+    }
 }
 
 impl<'a, T: FromMessagePack<'a> + Ord> FromMessagePack<'a> for alloc::collections::BinaryHeap<T> {
@@ -661,6 +843,10 @@ impl<T: ToMessagePack + Ord> ToMessagePack for alloc::collections::BinaryHeap<T>
             item.write(writer)?;
         }
         Ok(())
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
     }
 }
 
@@ -690,6 +876,10 @@ impl<T: ToMessagePack> ToMessagePack for std::collections::HashSet<T> {
             item.write(writer)?;
         }
         Ok(())
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        sequence_size_hint::<T>(self.len())
     }
 }
 
@@ -725,6 +915,10 @@ impl<K: ToMessagePack, V: ToMessagePack> ToMessagePack for std::collections::Has
         }
         Ok(())
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        map_size_hint::<K, V>(self.len())
+    }
 }
 
 // -------------------------------------------------------------------------------
@@ -746,6 +940,14 @@ impl<T: ToMessagePack> ToMessagePack for alloc::boxed::Box<T> {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         self.as_ref().write(writer)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        self.as_ref().size_hint()
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        T::max_size()
+    }
 }
 
 #[cfg(feature = "std")]
@@ -763,6 +965,14 @@ impl<T: ToMessagePack> ToMessagePack for std::sync::Arc<T> {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         self.as_ref().write(writer)
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        self.as_ref().size_hint()
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        T::max_size()
+    }
 }
 
 impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::rc::Rc<T> {
@@ -777,6 +987,14 @@ impl<'a, T: FromMessagePack<'a>> FromMessagePack<'a> for alloc::rc::Rc<T> {
 impl<T: ToMessagePack> ToMessagePack for alloc::rc::Rc<T> {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         self.as_ref().write(writer)
+    }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        self.as_ref().size_hint()
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        T::max_size()
     }
 }
 
@@ -797,6 +1015,16 @@ impl ToMessagePack for () {
     fn write<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_nil()
     }
+
+    fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+        // SAFETY: unit always encodes as one nil byte.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(1) })
+    }
+
+    fn max_size() -> Option<crate::TrustedSizeHint> {
+        // SAFETY: unit always encodes as one nil byte.
+        Some(unsafe { crate::TrustedSizeHint::new_unchecked(1) })
+    }
 }
 
 macro_rules! impl_tuple_message_packable {
@@ -816,6 +1044,20 @@ macro_rules! impl_tuple_message_packable {
                 writer.write_array_len($len)?;
                 $(self.$idx.write(writer)?;)+
                 Ok(())
+            }
+
+            fn size_hint(&self) -> Option<crate::TrustedSizeHint> {
+                let mut size = array_header_size($len);
+                $(size = size.checked_add(self.$idx.size_hint()?.upper_bound())?;)+
+                // SAFETY: the tuple header and every element have exact-size proofs.
+                Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
+            }
+
+            fn max_size() -> Option<crate::TrustedSizeHint> {
+                let mut size = array_header_size($len);
+                $(size = size.checked_add($t::max_size()?.upper_bound())?;)+
+                // SAFETY: the tuple header is exact and every field is bounded above.
+                Some(unsafe { crate::TrustedSizeHint::new_unchecked(size) })
             }
         }
     };

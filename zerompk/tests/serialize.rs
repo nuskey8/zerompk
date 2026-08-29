@@ -337,6 +337,25 @@ fn test_to_msgpack_with_small_buffer() {
 }
 
 #[test]
+fn test_trusted_size_hint_bounds_runtime_sized_container() {
+    let values = vec![0u64, 127, 128, u64::MAX];
+    let hint = zerompk::ToMessagePack::size_hint(&values).unwrap();
+    let max_element = <u64 as zerompk::ToMessagePack>::max_size().unwrap();
+    assert_eq!(
+        hint.upper_bound(),
+        1 + values.len() * max_element.upper_bound()
+    );
+
+    let mut buf = vec![0u8; hint.upper_bound()];
+    let written = zerompk::to_msgpack(&values, &mut buf).unwrap();
+    assert!(written <= hint.upper_bound());
+    assert_eq!(
+        zerompk::from_msgpack::<Vec<u64>>(&buf[..written]).unwrap(),
+        values
+    );
+}
+
+#[test]
 #[cfg(feature = "std")]
 fn test_write_read_msgpack_std_io() {
     let point = Point { x: 7, y: 9 };

@@ -46,23 +46,23 @@ pub trait FromMessagePackOwned: for<'a> FromMessagePack<'a> {}
 
 impl<T> FromMessagePackOwned for T where T: for<'a> FromMessagePack<'a> {}
 
-/// Proof that the next serialization of a value has an exact encoded size.
-pub struct ExactSize(usize);
+/// A trusted upper bound for the next serialization of a value.
+pub struct TrustedSizeHint(usize);
 
-impl ExactSize {
-    /// Creates an exact-size proof.
+impl TrustedSizeHint {
+    /// Creates a trusted encoded-size upper bound.
     ///
     /// # Safety
-    /// The next serialization of the value this proof describes must write exactly
-    /// `size` bytes. Serialization-relevant state must not change in between.
+    /// The next serialization of the value this hint describes must write at most
+    /// `upper_bound` bytes. Serialization-relevant state must not change in between.
     #[doc(hidden)]
     #[inline(always)]
-    pub const unsafe fn new_unchecked(size: usize) -> Self {
-        Self(size)
+    pub const unsafe fn new_unchecked(upper_bound: usize) -> Self {
+        Self(upper_bound)
     }
 
     #[inline(always)]
-    pub const fn get(&self) -> usize {
+    pub const fn upper_bound(&self) -> usize {
         self.0
     }
 }
@@ -71,14 +71,6 @@ impl ExactSize {
 pub trait ToMessagePack {
     /// Writes the MessagePack representation of this value into the provided writer.
     fn write<W: Write>(&self, writer: &mut W) -> Result<()>;
-
-    /// Returns the exact number of bytes written by the next call to [`Self::write`],
-    /// or `None` when the size cannot be determined cheaply.
-    ///
-    #[inline]
-    fn size(&self) -> Option<ExactSize> {
-        None
-    }
 
     /// Writes the MessagePack representation of a slice of values into the provided writer.
     #[inline(always)]
@@ -90,6 +82,38 @@ pub trait ToMessagePack {
             value.write(writer)?;
         }
         Ok(())
+    }
+
+    /// Returns a trusted upper bound for the number of bytes written by the next
+    /// call to [`Self::write`], or `None` when it cannot be determined cheaply.
+    ///
+    /// Implementations must run in O(1) with respect to the serialized value's
+    /// runtime-sized contents. Return `None` if determining the size requires
+    /// traversing a slice, collection, string contents, or another variable-size value.
+    ///
+    /// ## Safety
+    ///
+    /// The returned upper bound must never be smaller than the serialized representation.
+    #[inline]
+    fn size_hint(&self) -> Option<TrustedSizeHint> {
+        None
+    }
+
+    /// Returns a trusted upper bound valid for every value of this type.
+    ///
+    /// This is used to compute O(1) hints for runtime-sized homogeneous containers.
+    /// The returned upper bound must never be smaller than any serialized value
+    /// of this type.
+    ///
+    /// ## Safety
+    ///
+    /// The returned upper bound must never be smaller than any serialized value of this type.
+    #[inline]
+    fn max_size() -> Option<TrustedSizeHint>
+    where
+        Self: Sized,
+    {
+        None
     }
 }
 
@@ -142,9 +166,8 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 /// }
 /// ```
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
-    // SAFETY: a returned size is required to match the immediately following write.
-    let mut writer = match value.size() {
-        Some(size) => write::VecWriter::with_capacity(size.get()),
+    let mut writer = match value.size_hint() {
+        Some(hint) => write::VecWriter::with_capacity(hint.upper_bound()),
         None => write::VecWriter::new(),
     };
     value.write(&mut writer)?;
@@ -177,22 +200,24 @@ pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
 /// }
 /// ```
 pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
-    // SAFETY: `size` guarantees the byte count of the immediately following write.
-    if let Some(size) = value.size() {
-        let size = size.get();
-        if size > buf.len() {
-            return Err(Error::BufferTooSmall);
-        }
-        // SAFETY: the exact output range was validated above.
-        let mut writer = unsafe { write::SliceWriter::new_unchecked(&mut buf[..size]) };
+    if let Some(hint) = value.size_hint()
+        && hint.upper_bound() <= buf.len()
+    {
+        // SAFETY: the trusted hint guarantees that the write fits in `buf`.
+        let mut writer = unsafe { write::SliceWriter::new_unchecked(buf) };
         value.write(&mut writer)?;
-        debug_assert_eq!(writer.position(), size);
-        Ok(writer.position())
-    } else {
-        let mut writer = write::SliceWriter::new(buf);
-        value.write(&mut writer)?;
-        Ok(writer.position())
+        debug_assert!(writer.position() <= hint.upper_bound());
+        return Ok(writer.position());
     }
+    to_msgpack_checked(value, buf)
+}
+
+#[cold]
+#[inline(never)]
+fn to_msgpack_checked<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
+    let mut writer = write::SliceWriter::new(buf);
+    value.write(&mut writer)?;
+    Ok(writer.position())
 }
 
 /// Serializes a value of type `T` into the I/O stream.
