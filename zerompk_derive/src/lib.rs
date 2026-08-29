@@ -1099,7 +1099,7 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     if field_configs[i].ignore {
                         quote! { #name: <#ty as ::core::default::Default>::default() }
                     } else {
-                        quote! { #name: #name }
+                        quote! { #name }
                     }
                 })
                 .collect();
@@ -1352,7 +1352,7 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
             if field_configs[i].ignore {
                 quote! { #name: <#ty as ::core::default::Default>::default() }
             } else {
-                quote! { #name: #name }
+                quote! { #name }
             }
         })
         .collect();
@@ -1971,7 +1971,7 @@ fn build_enum_variant_payload(
                             if field_configs[i].ignore {
                                 quote! { #n: <#ty as ::core::default::Default>::default() }
                             } else {
-                                quote! { #n: #n }
+                                quote! { #n }
                             }
                         })
                         .collect();
@@ -2061,7 +2061,7 @@ fn build_enum_variant_payload(
                             if field_configs[i].ignore {
                                 quote! { #n: <#ty as ::core::default::Default>::default() }
                             } else {
-                                quote! { #n: #n }
+                                quote! { #n }
                             }
                         })
                         .collect();
