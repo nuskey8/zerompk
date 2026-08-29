@@ -778,6 +778,38 @@ fn build_write_expr(
     }
 }
 
+fn build_size_expr(
+    value: proc_macro2::TokenStream,
+    ty: &Type,
+    cfg: Option<&FieldConfig>,
+) -> proc_macro2::TokenStream {
+    if is_bin_type(ty) && should_use_bin(ty, cfg) {
+        quote! {{
+            let __len = (#value).len();
+            let __header = if __len <= u8::MAX as usize {
+                2usize
+            } else if __len <= u16::MAX as usize {
+                3usize
+            } else {
+                5usize
+            };
+            let __size = __len.checked_add(__header)?;
+            // SAFETY: MessagePack binary headers depend only on payload length.
+            ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+        }}
+    } else {
+        quote! { ::zerompk::ToMessagePack::size_hint(&(#value)) }
+    }
+}
+
+fn build_max_size_expr(ty: &Type, cfg: Option<&FieldConfig>) -> proc_macro2::TokenStream {
+    if is_bin_type(ty) && should_use_bin(ty, cfg) {
+        quote! { ::core::option::Option::<::zerompk::TrustedSizeHint>::None }
+    } else {
+        quote! { <#ty as ::zerompk::ToMessagePack>::max_size() }
+    }
+}
+
 fn build_named_array_slots(
     fields: &syn::FieldsNamed,
     configs: &[FieldConfig],
@@ -977,7 +1009,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
         }
     };
 
-    let ImplBody { write, read } = body;
+    let ImplBody { write, read, size } = body;
 
     let tokens = match kind {
         DeriveKind::To => quote! {
@@ -986,6 +1018,8 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
                 fn write<W: ::zerompk::Write>(&self, writer: &mut W) -> ::core::result::Result<(), ::zerompk::Error> {
                     #write
                 }
+
+                #size
             }
         },
         DeriveKind::From => {
@@ -1026,6 +1060,7 @@ fn expand(input: DeriveInput, kind: DeriveKind) -> Result<proc_macro2::TokenStre
 struct ImplBody {
     write: proc_macro2::TokenStream,
     read: proc_macro2::TokenStream,
+    size: proc_macro2::TokenStream,
 }
 
 fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
@@ -1149,7 +1184,52 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 }
             };
 
-            Ok(ImplBody { write, read })
+            let size = if is_dense_sequential {
+                let field_sizes: Vec<_> = names
+                    .iter()
+                    .zip(tys.iter())
+                    .zip(field_configs.iter())
+                    .map(|((name, ty), cfg)| build_size_expr(quote! { self.#name }, ty, Some(cfg)))
+                    .collect();
+                let field_max_sizes: Vec<_> = tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .map(|(ty, cfg)| build_max_size_expr(ty, Some(cfg)))
+                    .collect();
+                let header_size = if array_len < 16 {
+                    1usize
+                } else if array_len <= u16::MAX as usize {
+                    3
+                } else {
+                    5
+                };
+                quote! {
+                    #[inline]
+                    fn size_hint(&self) -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                        let mut __size = #header_size;
+                        #(
+                            let __field_size = (#field_sizes)?;
+                            __size = __size.checked_add(__field_size.upper_bound())?;
+                        )*
+                        // SAFETY: the header and every serialized field have exact-size proofs.
+                        ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+                    }
+
+                    #[inline]
+                    fn max_size() -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                        let mut __size = #header_size;
+                        #(
+                            __size = __size.checked_add((#field_max_sizes)?.upper_bound())?;
+                        )*
+                        // SAFETY: the header is exact and every field is bounded above.
+                        ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
+            Ok(ImplBody { write, read, size })
         }
         Fields::Unnamed(fields) => {
             let count = fields.unnamed.len();
@@ -1169,6 +1249,8 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 let cfg = &field_configs[0];
                 let write_expr = build_write_expr(quote! { self.0 }, &ty, Some(cfg));
                 let read_expr = build_read_expr(&ty, Some(cfg));
+                let size_expr = build_size_expr(quote! { self.0 }, &ty, Some(cfg));
+                let max_size_expr = build_max_size_expr(&ty, Some(cfg));
 
                 let write = quote! {
                     #write_expr
@@ -1180,7 +1262,21 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                     Ok(Self(__f0))
                 };
 
-                return Ok(ImplBody { write, read });
+                return Ok(ImplBody {
+                    write,
+                    read,
+                    size: quote! {
+                        #[inline]
+                        fn size_hint(&self) -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                            #size_expr
+                        }
+
+                        #[inline]
+                        fn max_size() -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                            #max_size_expr
+                        }
+                    },
+                });
             }
 
             let idx: Vec<_> = (0..count).map(syn::Index::from).collect();
@@ -1276,7 +1372,54 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
                 }
             };
 
-            Ok(ImplBody { write, read })
+            let size = if is_dense_sequential {
+                let field_sizes: Vec<_> = idx
+                    .iter()
+                    .zip(tys.iter())
+                    .zip(field_configs.iter())
+                    .map(|((index, ty), cfg)| {
+                        build_size_expr(quote! { self.#index }, ty, Some(cfg))
+                    })
+                    .collect();
+                let field_max_sizes: Vec<_> = tys
+                    .iter()
+                    .zip(field_configs.iter())
+                    .map(|(ty, cfg)| build_max_size_expr(ty, Some(cfg)))
+                    .collect();
+                let header_size = if array_len < 16 {
+                    1usize
+                } else if array_len <= u16::MAX as usize {
+                    3
+                } else {
+                    5
+                };
+                quote! {
+                    #[inline]
+                    fn size_hint(&self) -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                        let mut __size = #header_size;
+                        #(
+                            let __field_size = (#field_sizes)?;
+                            __size = __size.checked_add(__field_size.upper_bound())?;
+                        )*
+                        // SAFETY: the header and every serialized field have exact-size proofs.
+                        ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+                    }
+
+                    #[inline]
+                    fn max_size() -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                        let mut __size = #header_size;
+                        #(
+                            __size = __size.checked_add((#field_max_sizes)?.upper_bound())?;
+                        )*
+                        // SAFETY: the header is exact and every field is bounded above.
+                        ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
+            Ok(ImplBody { write, read, size })
         }
         Fields::Unit => Ok(ImplBody {
             write: quote! {
@@ -1286,6 +1429,18 @@ fn expand_array_struct(data: &DataStruct) -> Result<ImplBody> {
             read: quote! {
                 reader.read_nil()?;
                 Ok(Self)
+            },
+            size: quote! {
+                #[inline]
+                fn size_hint(&self) -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                    // SAFETY: unit structs always encode as one nil byte.
+                    ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(1) })
+                }
+                #[inline]
+                fn max_size() -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+                    // SAFETY: unit structs always encode as one nil byte.
+                    ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(1) })
+                }
             },
         }),
     }
@@ -1315,6 +1470,21 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
         .collect::<Result<_>>()?;
     let (field_indices, key_lits) = parse_named_map_keys(fields, &field_configs)?;
     let encoded_key_lits: Vec<_> = key_lits.iter().map(encode_static_string).collect();
+    let encoded_key_sizes: Vec<_> = key_lits
+        .iter()
+        .map(|key| {
+            let len = key.value().len();
+            len + if len < 32 {
+                1
+            } else if len <= u8::MAX as usize {
+                2
+            } else if len <= u16::MAX as usize {
+                3
+            } else {
+                5
+            }
+        })
+        .collect();
     let count = field_indices.len();
     let names: Vec<_> = field_indices
         .iter()
@@ -1363,6 +1533,23 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
         .map(|(idx, (name, ty))| {
             let cfg = &field_configs[field_indices[idx]];
             build_write_expr(quote! { self.#name }, ty, Some(cfg))
+        })
+        .collect();
+    let value_sizes: Vec<_> = names
+        .iter()
+        .zip(tys.iter())
+        .enumerate()
+        .map(|(idx, (name, ty))| {
+            let cfg = &field_configs[field_indices[idx]];
+            build_size_expr(quote! { self.#name }, ty, Some(cfg))
+        })
+        .collect();
+    let value_max_sizes: Vec<_> = tys
+        .iter()
+        .enumerate()
+        .map(|(idx, ty)| {
+            let cfg = &field_configs[field_indices[idx]];
+            build_max_size_expr(ty, Some(cfg))
         })
         .collect();
 
@@ -1486,7 +1673,38 @@ fn expand_map_struct(data: &DataStruct, allow_unknown_fields: bool) -> Result<Im
         }
     };
 
-    Ok(ImplBody { write, read })
+    let header_size = if count < 16 {
+        1usize
+    } else if count <= u16::MAX as usize {
+        3
+    } else {
+        5
+    };
+    let size = quote! {
+        #[inline]
+        fn size_hint(&self) -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+            let mut __size = #header_size;
+            #(
+                __size = __size.checked_add(#encoded_key_sizes)?;
+                __size = __size.checked_add((#value_sizes)?.upper_bound())?;
+            )*
+            // SAFETY: the map header, static keys, and field values have exact sizes.
+            ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+        }
+
+        #[inline]
+        fn max_size() -> ::core::option::Option<::zerompk::TrustedSizeHint> {
+            let mut __size = #header_size;
+            #(
+                __size = __size.checked_add(#encoded_key_sizes)?;
+                __size = __size.checked_add((#value_max_sizes)?.upper_bound())?;
+            )*
+            // SAFETY: the map header and keys are exact and every value is bounded above.
+            ::core::option::Option::Some(unsafe { ::zerompk::TrustedSizeHint::new_unchecked(__size) })
+        }
+    };
+
+    Ok(ImplBody { write, read, size })
 }
 
 fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
@@ -1550,7 +1768,11 @@ fn expand_c_enum(data: &DataEnum, repr: CEnumRepr) -> Result<ImplBody> {
         }
     };
 
-    Ok(ImplBody { write, read })
+    Ok(ImplBody {
+        write,
+        read,
+        size: quote! {},
+    })
 }
 
 fn read_tag_dispatch(
@@ -1702,7 +1924,11 @@ fn expand_enum(data: &DataEnum, repr: Repr) -> Result<ImplBody> {
         }
     };
 
-    Ok(ImplBody { write, read })
+    Ok(ImplBody {
+        write,
+        read,
+        size: quote! {},
+    })
 }
 
 fn build_enum_variant_payload(

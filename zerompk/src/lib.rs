@@ -22,6 +22,7 @@ use alloc::vec::Vec;
 pub use error::{Error, Result};
 pub use read::{Read, SliceReader, Tag};
 pub use value::Value;
+
 pub use write::Write;
 
 extern crate alloc;
@@ -46,6 +47,27 @@ pub trait FromMessagePackOwned: for<'a> FromMessagePack<'a> {}
 
 impl<T> FromMessagePackOwned for T where T: for<'a> FromMessagePack<'a> {}
 
+/// A trusted upper bound for the next serialization of a value.
+pub struct TrustedSizeHint(usize);
+
+impl TrustedSizeHint {
+    /// Creates a trusted encoded-size upper bound.
+    ///
+    /// # Safety
+    /// The next serialization of the value this hint describes must write at most
+    /// `upper_bound` bytes. Serialization-relevant state must not change in between.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub const unsafe fn new_unchecked(upper_bound: usize) -> Self {
+        Self(upper_bound)
+    }
+
+    #[inline(always)]
+    pub const fn upper_bound(&self) -> usize {
+        self.0
+    }
+}
+
 /// A data structure that can be serialized into MessagePack format.
 pub trait ToMessagePack {
     /// Writes the MessagePack representation of this value into the provided writer.
@@ -61,6 +83,38 @@ pub trait ToMessagePack {
             value.write(writer)?;
         }
         Ok(())
+    }
+
+    /// Returns a trusted upper bound for the number of bytes written by the next
+    /// call to [`Self::write`], or `None` when it cannot be determined cheaply.
+    ///
+    /// Implementations must run in O(1) with respect to the serialized value's
+    /// runtime-sized contents. Return `None` if determining the size requires
+    /// traversing a slice, collection, string contents, or another variable-size value.
+    ///
+    /// ## Safety
+    ///
+    /// The returned upper bound must never be smaller than the serialized representation.
+    #[inline]
+    fn size_hint(&self) -> Option<TrustedSizeHint> {
+        None
+    }
+
+    /// Returns a trusted upper bound valid for every value of this type.
+    ///
+    /// This is used to compute O(1) hints for runtime-sized homogeneous containers.
+    /// The returned upper bound must never be smaller than any serialized value
+    /// of this type.
+    ///
+    /// ## Safety
+    ///
+    /// The returned upper bound must never be smaller than any serialized value of this type.
+    #[inline]
+    fn max_size() -> Option<TrustedSizeHint>
+    where
+        Self: Sized,
+    {
+        None
     }
 }
 
@@ -113,7 +167,15 @@ pub fn from_msgpack<'a, T: FromMessagePack<'a>>(data: &'a [u8]) -> Result<T> {
 /// }
 /// ```
 pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
-    let mut writer = write::VecWriter::new();
+    /// The maximum size hint preallocation to avoid excessive memory usage.
+    const MAX_SIZE_HINT_PREALLOC: usize = 16 * 1024 * 1024;
+
+    let mut writer = match value.size_hint() {
+        Some(hint) => {
+            write::VecWriter::with_capacity_hint(hint.upper_bound().min(MAX_SIZE_HINT_PREALLOC))
+        }
+        None => write::VecWriter::new(),
+    };
     value.write(&mut writer)?;
     Ok(writer.into_vec())
 }
@@ -144,6 +206,21 @@ pub fn to_msgpack_vec<T: ToMessagePack>(value: &T) -> Result<Vec<u8>> {
 /// }
 /// ```
 pub fn to_msgpack<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
+    if let Some(hint) = value.size_hint()
+        && hint.upper_bound() <= buf.len()
+    {
+        // SAFETY: the trusted hint guarantees that the write fits in `buf`.
+        let mut writer = unsafe { write::SliceWriter::new_unchecked(buf) };
+        value.write(&mut writer)?;
+        debug_assert!(writer.position() <= hint.upper_bound());
+        return Ok(writer.position());
+    }
+    to_msgpack_checked(value, buf)
+}
+
+#[cold]
+#[inline(never)]
+fn to_msgpack_checked<T: ToMessagePack>(value: &T, buf: &mut [u8]) -> Result<usize> {
     let mut writer = write::SliceWriter::new(buf);
     value.write(&mut writer)?;
     Ok(writer.position())
